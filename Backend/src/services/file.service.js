@@ -3,6 +3,21 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import busboy from 'busboy';
 import { validateFileExtension, sanitizeFilename, generateDatasetId } from '../utils/file.validator.js';
+import { 
+  createDatasetMetadata, 
+  updateDatasetStatus, 
+  findDatasetById,
+  deleteDatasetMetadata,
+  datasetFileExists,
+  validateDatasetForProcessing,
+  getAllDatasets as getAllDatasetsMetadata,
+  DatasetStatus
+} from './dataset.service.js';
+import { 
+  createFileReadStream, 
+  createFileWriteStream,
+  handleStreamError 
+} from '../utils/stream.utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,20 +29,24 @@ if (!fs.existsSync(UPLOAD_DIR)) {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
-// In-memory metadata store (later this will be a database)
-const datasetsMetadata = new Map();
-
 /**
- * Upload dataset using streaming approach
+ * Upload dataset using streaming approach with proper backpressure handling
  * @param {Object} req - Express request object
  * @returns {Promise<Object>} - Dataset metadata
  */
 export async function uploadDataset(req) {
   return new Promise((resolve, reject) => {
-    const busboyInstance = busboy({ headers: req.headers });
+    const busboyInstance = busboy({ 
+      headers: req.headers,
+      limits: {
+        fileSize: 10 * 1024 * 1024 * 1024 // 10GB max file size
+      }
+    });
     
     let fileProcessed = false;
     let datasetMetadata = null;
+    let currentDatasetId = null;
+    let currentFilePath = null;
 
     busboyInstance.on('file', (fieldname, file, info) => {
       const { filename, encoding, mimeType } = info;
@@ -41,64 +60,87 @@ export async function uploadDataset(req) {
 
       // Generate unique dataset ID and storage filename
       const datasetId = generateDatasetId();
+      currentDatasetId = datasetId;
       const sanitized = sanitizeFilename(filename);
       const fileExtension = path.extname(sanitized);
       const storedFilename = `${datasetId}${fileExtension}`;
       const filePath = path.join(UPLOAD_DIR, storedFilename);
+      currentFilePath = filePath;
 
-      // Create write stream
-      const writeStream = fs.createWriteStream(filePath);
+      // Create initial metadata with 'uploading' status
+      const initialMetadata = createDatasetMetadata({
+        id: datasetId,
+        originalName: filename,
+        storedName: storedFilename,
+        format: validation.format,
+        path: filePath,
+        status: DatasetStatus.UPLOADING
+      });
+
+      console.log(`📤 Starting upload: ${filename} → ${storedFilename}`);
+
+      // Create write stream with backpressure support
+      const writeStream = createFileWriteStream(filePath);
       
       let uploadedBytes = 0;
+      let lastLoggedMB = 0;
 
-      // Track upload progress
+      // Track upload progress with backpressure awareness
       file.on('data', (chunk) => {
         uploadedBytes += chunk.length;
-        // Log memory usage periodically (every 10MB)
-        if (uploadedBytes % (10 * 1024 * 1024) < chunk.length) {
+        const currentMB = Math.floor(uploadedBytes / (1024 * 1024));
+        
+        // Log memory usage every 10MB
+        if (currentMB >= lastLoggedMB + 10) {
           const memUsage = process.memoryUsage();
-          console.log(`📊 Memory Usage - Heap: ${(memUsage.heapUsed / 1024 / 1024).toFixed(2)} MB, Uploaded: ${(uploadedBytes / 1024 / 1024).toFixed(2)} MB`);
+          console.log(`📊 Memory - Heap: ${(memUsage.heapUsed / 1024 / 1024).toFixed(2)} MB | RSS: ${(memUsage.rss / 1024 / 1024).toFixed(2)} MB | Uploaded: ${currentMB} MB`);
+          lastLoggedMB = currentMB;
         }
       });
 
-      // Pipe file stream to write stream
+      // Pipe with automatic backpressure handling
       file.pipe(writeStream);
 
       writeStream.on('finish', () => {
-        const stats = fs.statSync(filePath);
-        
-        // Create dataset metadata
-        datasetMetadata = {
-          id: datasetId,
-          originalName: filename,
-          storedName: storedFilename,
-          format: validation.format,
-          size: stats.size,
-          status: 'uploaded',
-          uploadedAt: new Date().toISOString(),
-          path: filePath
-        };
+        try {
+          const stats = fs.statSync(filePath);
+          
+          // Update metadata to 'uploaded' status
+          datasetMetadata = updateDatasetStatus(datasetId, DatasetStatus.UPLOADED, {
+            size: stats.size
+          });
 
-        // Store metadata (in-memory for now)
-        datasetsMetadata.set(datasetId, datasetMetadata);
-
-        fileProcessed = true;
-        console.log(`✅ File uploaded successfully: ${storedFilename} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
+          fileProcessed = true;
+          
+          const finalMemUsage = process.memoryUsage();
+          console.log(`✅ Upload complete: ${storedFilename}`);
+          console.log(`   Size: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
+          console.log(`   Final Memory - Heap: ${(finalMemUsage.heapUsed / 1024 / 1024).toFixed(2)} MB | RSS: ${(finalMemUsage.rss / 1024 / 1024).toFixed(2)} MB`);
+        } catch (error) {
+          console.error('❌ Error finalizing upload:', error);
+          cleanupFailedUpload(datasetId, filePath);
+          reject(new Error('Failed to finalize upload'));
+        }
       });
 
       writeStream.on('error', (error) => {
-        console.error('❌ Write stream error:', error);
-        // Clean up partial file
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-        }
-        reject(new Error('Failed to write file to disk'));
+        console.error('❌ Write stream error:', error.message);
+        cleanupFailedUpload(datasetId, filePath);
+        reject(new Error(`Failed to write file: ${error.message}`));
       });
 
       file.on('error', (error) => {
-        console.error('❌ File stream error:', error);
+        console.error('❌ File stream error:', error.message);
         writeStream.destroy();
-        reject(new Error('Failed to process file stream'));
+        cleanupFailedUpload(datasetId, filePath);
+        reject(new Error(`Failed to process file stream: ${error.message}`));
+      });
+
+      file.on('limit', () => {
+        console.error('❌ File size limit exceeded');
+        writeStream.destroy();
+        cleanupFailedUpload(datasetId, filePath);
+        reject(new Error('File size exceeds maximum allowed limit (10GB)'));
       });
     });
 
@@ -110,13 +152,50 @@ export async function uploadDataset(req) {
     });
 
     busboyInstance.on('error', (error) => {
-      console.error('❌ Busboy error:', error);
-      reject(new Error('Failed to parse multipart form data'));
+      console.error('❌ Busboy error:', error.message);
+      if (currentDatasetId && currentFilePath) {
+        cleanupFailedUpload(currentDatasetId, currentFilePath);
+      }
+      reject(new Error(`Failed to parse upload: ${error.message}`));
     });
 
-    // Pipe the request to busboy
+    // Handle request errors
+    req.on('error', (error) => {
+      console.error('❌ Request error:', error.message);
+      if (currentDatasetId && currentFilePath) {
+        cleanupFailedUpload(currentDatasetId, currentFilePath);
+      }
+      reject(new Error(`Upload interrupted: ${error.message}`));
+    });
+
+    // Pipe the request to busboy (automatic backpressure handling)
     req.pipe(busboyInstance);
   });
+}
+
+/**
+ * Clean up failed upload
+ * @param {string} datasetId - Dataset ID
+ * @param {string} filePath - File path
+ */
+function cleanupFailedUpload(datasetId, filePath) {
+  try {
+    // Remove partial file
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      console.log(`🧹 Cleaned up partial file: ${path.basename(filePath)}`);
+    }
+    
+    // Update metadata to failed status or remove it
+    const metadata = findDatasetById(datasetId);
+    if (metadata) {
+      updateDatasetStatus(datasetId, DatasetStatus.FAILED, {
+        error: 'Upload failed and was cleaned up'
+      });
+    }
+  } catch (error) {
+    console.error('❌ Cleanup error:', error.message);
+  }
 }
 
 /**
@@ -125,46 +204,100 @@ export async function uploadDataset(req) {
  * @returns {Object|null} - Dataset metadata or null
  */
 export function getDataset(datasetId) {
-  return datasetsMetadata.get(datasetId) || null;
+  return findDatasetById(datasetId);
 }
 
 /**
- * Get read stream for a dataset
+ * Get read stream for a dataset (Member 1 → Member 2 interface)
+ * This is the primary interface for Member 2 to access uploaded files
+ * 
  * @param {string} datasetId - Dataset ID
- * @returns {fs.ReadStream|null} - Read stream or null
+ * @returns {Object} - { success: boolean, stream: ReadStream|null, error: string|null, metadata: Object|null }
  */
 export function getReadStream(datasetId) {
-  const metadata = datasetsMetadata.get(datasetId);
-  if (!metadata) {
-    return null;
+  // Validate dataset exists and is ready
+  const validation = validateDatasetForProcessing(datasetId);
+  if (!validation.valid) {
+    return {
+      success: false,
+      stream: null,
+      error: validation.reason,
+      metadata: null
+    };
   }
 
-  if (!fs.existsSync(metadata.path)) {
-    return null;
+  const metadata = findDatasetById(datasetId);
+  
+  // Double-check file exists
+  if (!datasetFileExists(datasetId)) {
+    return {
+      success: false,
+      stream: null,
+      error: 'Dataset file not found on disk',
+      metadata: null
+    };
   }
 
-  return fs.createReadStream(metadata.path);
+  try {
+    // Create read stream with optimized settings for large files
+    const stream = createFileReadStream(metadata.path, {
+      highWaterMark: 64 * 1024 // 64KB chunks for good throughput
+    });
+
+    // Add error handling to the stream
+    stream.on('error', (error) => {
+      console.error(`❌ Error reading dataset ${datasetId}:`, error.message);
+    });
+
+    console.log(`📖 Read stream created for dataset: ${datasetId} (${metadata.originalName})`);
+
+    return {
+      success: true,
+      stream: stream,
+      error: null,
+      metadata: {
+        id: metadata.id,
+        filename: metadata.originalName,
+        format: metadata.format,
+        size: metadata.size
+      }
+    };
+  } catch (error) {
+    console.error(`❌ Failed to create read stream for ${datasetId}:`, error.message);
+    return {
+      success: false,
+      stream: null,
+      error: `Failed to create read stream: ${error.message}`,
+      metadata: null
+    };
+  }
 }
 
 /**
- * Delete dataset
+ * Delete dataset (file + metadata)
  * @param {string} datasetId - Dataset ID
  * @returns {boolean} - Success status
  */
 export function deleteDataset(datasetId) {
-  const metadata = datasetsMetadata.get(datasetId);
+  const metadata = findDatasetById(datasetId);
   if (!metadata) {
     return false;
   }
 
   try {
+    // Delete physical file
     if (fs.existsSync(metadata.path)) {
       fs.unlinkSync(metadata.path);
+      console.log(`🗑️  Deleted file: ${metadata.storedName}`);
     }
-    datasetsMetadata.delete(datasetId);
+    
+    // Delete metadata
+    deleteDatasetMetadata(datasetId);
+    console.log(`🗑️  Deleted metadata for: ${datasetId}`);
+    
     return true;
   } catch (error) {
-    console.error('❌ Failed to delete dataset:', error);
+    console.error(`❌ Failed to delete dataset ${datasetId}:`, error.message);
     return false;
   }
 }
@@ -174,5 +307,18 @@ export function deleteDataset(datasetId) {
  * @returns {Array} - Array of dataset metadata
  */
 export function getAllDatasets() {
-  return Array.from(datasetsMetadata.values());
+  return getAllDatasetsMetadata();
+}
+
+/**
+ * Check if dataset is ready for processing
+ * @param {string} datasetId - Dataset ID
+ * @returns {Object} - { ready: boolean, reason: string|null }
+ */
+export function isDatasetReady(datasetId) {
+  const validation = validateDatasetForProcessing(datasetId);
+  return {
+    ready: validation.valid,
+    reason: validation.reason
+  };
 }

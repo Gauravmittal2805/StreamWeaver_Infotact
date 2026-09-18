@@ -3,7 +3,8 @@ import {
   handleUpload, 
   handleGetDataset, 
   handleGetAllDatasets, 
-  handleDeleteDataset 
+  handleDeleteDataset,
+  handleCheckDataset
 } from '../controllers/file.controller.js';
 
 const router = express.Router();
@@ -13,6 +14,9 @@ router.post('/upload', handleUpload);
 
 // GET /api/files - Get all datasets
 router.get('/', handleGetAllDatasets);
+
+// GET /api/files/:datasetId/check - Check dataset existence and readiness
+router.get('/:datasetId/check', handleCheckDataset);
 
 // GET /api/files/:datasetId - Get specific dataset metadata
 router.get('/:datasetId', handleGetDataset);
