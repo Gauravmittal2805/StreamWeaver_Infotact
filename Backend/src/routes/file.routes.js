@@ -1,8 +1,27 @@
-const express = require("express");
+import express from 'express';
+import { 
+  handleUpload, 
+  handleGetDataset, 
+  handleGetAllDatasets, 
+  handleDeleteDataset,
+  handleCheckDataset
+} from '../controllers/file.controller.js';
 
 const router = express.Router();
 
-// Member 1 File Routes placeholder
-// e.g., router.post("/upload", uploadMiddleware, uploadFile);
+// POST /api/files/upload - Upload a dataset file
+router.post('/upload', handleUpload);
 
-module.exports = router;
+// GET /api/files - Get all datasets
+router.get('/', handleGetAllDatasets);
+
+// GET /api/files/:datasetId/check - Check dataset existence and readiness
+router.get('/:datasetId/check', handleCheckDataset);
+
+// GET /api/files/:datasetId - Get specific dataset metadata
+router.get('/:datasetId', handleGetDataset);
+
+// DELETE /api/files/:datasetId - Delete a dataset
+router.delete('/:datasetId', handleDeleteDataset);
+
+export default router;
