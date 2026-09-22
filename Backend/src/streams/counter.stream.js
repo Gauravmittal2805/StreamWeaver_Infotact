@@ -1,5 +1,5 @@
-const { Writable } = require("stream");
-const { calculateRowsPerSecond } = require("../utils/job.utils");
+import { Writable } from "stream";
+import { calculateRowsPerSecond, calculateProgressPercent } from "../utils/job.utils.js";
 
 /**
  * RecordCounterStream
@@ -9,17 +9,19 @@ const { calculateRowsPerSecond } = require("../utils/job.utils");
  * - successfulRows
  * - failedRows
  * - rowsPerSecond
+ * - progressPercent
  * - malformed errors (capped)
  *
  * Terminal consumer stream that emits progress events and invokes throttled callbacks for job status updates.
  */
-class RecordCounterStream extends Writable {
+export class RecordCounterStream extends Writable {
   constructor(options = {}) {
     super({
       ...options,
       objectMode: true
     });
 
+    this.totalExpectedRows = options.totalExpectedRows || 0;
     this.recordsReceived = 0;
     this.recordsProcessed = 0;
     this.successfulRows = 0;
@@ -43,8 +45,10 @@ class RecordCounterStream extends Writable {
       if (this.errors.length < this.maxErrorSample) {
         this.errors.push({
           rowNumber: record.rowNumber || record._rowNumber || this.recordsReceived,
+          field: record.field || null,
           type: (record.error && record.error.type) || "MALFORMED_RECORD",
-          message: (record.error && record.error.message) || "Malformed record structure"
+          message: (record.error && record.error.message) || "Malformed record structure",
+          raw: record.raw ? (typeof record.raw === 'object' ? JSON.stringify(record.raw).substring(0, 100) : String(record.raw).substring(0, 100)) : undefined
         });
       }
     } else {
@@ -86,7 +90,9 @@ class RecordCounterStream extends Writable {
 
   getMetrics() {
     const elapsedSeconds = Math.max((Date.now() - this.startTime) / 1000, 0.001);
-    const rowsPerSecond = Math.round(this.recordsProcessed / elapsedSeconds);
+    const rowsPerSecond = calculateRowsPerSecond(this.recordsProcessed, this.startTime, Date.now());
+    const total = this.totalExpectedRows || this.recordsReceived;
+    const progressPercent = calculateProgressPercent(this.recordsProcessed, total);
 
     return {
       recordsReceived: this.recordsReceived,
@@ -95,17 +101,18 @@ class RecordCounterStream extends Writable {
       successfulRows: this.successfulRows,
       failedRows: this.failedRows,
       rowsPerSecond,
+      progressPercent,
       errors: this.errors,
       durationSeconds: Number(elapsedSeconds.toFixed(2))
     };
   }
 }
 
-function createCounterStream(options = {}) {
+export function createCounterStream(options = {}) {
   return new RecordCounterStream(options);
 }
 
-module.exports = {
+export default {
   RecordCounterStream,
   createCounterStream
 };

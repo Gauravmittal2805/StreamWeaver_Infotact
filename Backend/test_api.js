@@ -1,10 +1,10 @@
-require("dotenv").config();
-const http = require("http");
-const app = require("./src/app");
-const { connectDB, closeDB } = require("./src/config/db");
+import dotenv from "dotenv";
+dotenv.config();
+
+import http from "http";
+import app from "./src/app.js";
 
 async function testApi() {
-  await connectDB();
   const server = http.createServer(app);
 
   await new Promise((resolve) => server.listen(0, resolve));
@@ -18,7 +18,7 @@ async function testApi() {
     const postRes = await fetch(`${baseUrl}/api/jobs`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ datasetId: "dataset_test123" })
+      body: JSON.stringify({ datasetId: "dataset_test123", autoStart: false })
     });
     const postData = await postRes.json();
     console.log("POST /api/jobs response:", postRes.status, postData);
@@ -64,7 +64,6 @@ async function testApi() {
     console.log("--- All API Tests Passed Successfully! ---");
   } finally {
     server.close();
-    await closeDB();
   }
 }
 
