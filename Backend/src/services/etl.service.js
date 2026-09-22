@@ -1,15 +1,15 @@
-const { pipeline } = require("stream/promises");
-const fileService = require("./file.service");
-const jobService = require("./job.service");
-const { createParserStream } = require("../parsers/parser.factory");
-const { createETLTransform } = require("../streams/etl.stream");
-const { createCounterStream } = require("../streams/counter.stream");
-const { JOB_STATUS } = require("../utils/job.utils");
+import { pipeline } from "stream/promises";
+import * as fileService from "./file.service.js";
+import * as jobService from "./job.service.js";
+import { createParserStream } from "../parsers/parser.factory.js";
+import { createETLTransform } from "../streams/etl.stream.js";
+import { createCounterStream } from "../streams/counter.stream.js";
+import { JOB_STATUS } from "../utils/job.utils.js";
 
 /**
  * Orchestrates the full ETL processing pipeline for a given dataset and job.
  * Pipeline stages:
- * Member 1 File Service -> Format Detection -> Parser Stream -> ETL Transform -> Counter Stream -> Job Updates
+ * Member 1 File Service (getReadStream) -> Format Detection -> Parser Stream -> ETL Transform -> Counter Stream -> Job Updates
  *
  * Preserves backpressure throughout and processes multi-GB files incrementally.
  *
@@ -18,46 +18,47 @@ const { JOB_STATUS } = require("../utils/job.utils");
  * @param {object} [options]
  * @returns {Promise<object>} ETL summary result
  */
-async function processDataset(datasetId, jobId, options = {}) {
+export async function processDataset(datasetId, jobId, options = {}) {
   console.log(`[ETL] Starting processing for dataset '${datasetId}' (Job: ${jobId})`);
 
-  // Ensure job exists and mark as processing
-  const startedAt = new Date();
+  const startedAt = new Date().toISOString();
   await jobService.updateJob(jobId, {
     status: JOB_STATUS.PROCESSING,
     startedAt
   });
 
   try {
-    // 1. Retrieve dataset metadata from Member 1
-    const metadata = await fileService.getDatasetMetadata(datasetId);
-    if (!metadata || !metadata.format) {
-      throw new Error(`Invalid metadata for dataset '${datasetId}': missing format`);
+    // 1. Obtain readable stream & metadata from Member 1's getReadStream interface
+    const readStreamResult = await fileService.getReadStream(datasetId);
+
+    if (!readStreamResult || !readStreamResult.success) {
+      const errMsg = (readStreamResult && readStreamResult.error) || `Dataset '${datasetId}' read stream not available`;
+      throw new Error(errMsg);
     }
 
-    const format = metadata.format.toLowerCase();
-    console.log(`[ETL] Detected format '${format}' for dataset '${datasetId}'`);
+    const { stream: fileReadStream, metadata } = readStreamResult;
+    const format = (metadata && metadata.format) ? metadata.format.toLowerCase() : (options.format || "csv");
+    console.log(`[ETL] Stream acquired. Detected format '${format}' for dataset '${datasetId}'`);
 
-    // 2. Obtain readable stream from Member 1
-    const fileReadStream = await fileService.getReadStream(datasetId);
-
-    // 3. Instantiate format-agnostic parser stream
+    // 2. Instantiate format-agnostic parser stream
     const parserStream = createParserStream(format, options.parserOptions);
 
-    // 4. Instantiate core ETL Transform stream
+    // 3. Instantiate core ETL Transform stream (includes Step 10 basic record validation)
     const transformStream = createETLTransform(options.transformOptions);
 
-    // 5. Instantiate Metric & Counter stream with throttled job updates
+    // 4. Instantiate Metric & Counter stream with throttled job updates
     const counterStream = createCounterStream({
-      progressIntervalMs: options.progressIntervalMs || 1000,
+      progressIntervalMs: options.progressIntervalMs || 500,
+      totalExpectedRows: (metadata && metadata.totalRows) || options.totalRows || 0,
       onProgress: async (metrics) => {
         try {
           await jobService.updateJob(jobId, {
-            totalRows: metadata.totalRows || metrics.recordsReceived,
-            processedRows: metrics.processedRows || metrics.recordsProcessed || 0,
+            totalRows: (metadata && metadata.totalRows) || metrics.recordsReceived,
+            processedRows: metrics.processedRows || 0,
             successfulRows: metrics.successfulRows || 0,
             failedRows: metrics.failedRows || 0,
             rowsPerSecond: metrics.rowsPerSecond || 0,
+            progressPercent: metrics.progressPercent || 0,
             errors: metrics.errors || []
           });
         } catch (err) {
@@ -66,7 +67,7 @@ async function processDataset(datasetId, jobId, options = {}) {
       }
     });
 
-    // 6. Execute pipeline with full backpressure
+    // 5. Execute pipeline with full streaming backpressure
     await pipeline(
       fileReadStream,
       parserStream,
@@ -74,17 +75,18 @@ async function processDataset(datasetId, jobId, options = {}) {
       counterStream
     );
 
-    // 7. Complete job with final metrics
+    // 6. Complete job with final metrics
     const finalMetrics = counterStream.getMetrics();
-    const completedAt = new Date();
+    const completedAt = new Date().toISOString();
 
     const completedJob = await jobService.updateJob(jobId, {
       status: JOB_STATUS.COMPLETED,
-      totalRows: metadata.totalRows || finalMetrics.recordsReceived,
-      processedRows: finalMetrics.processedRows || finalMetrics.recordsProcessed || 0,
+      totalRows: (metadata && metadata.totalRows) || finalMetrics.recordsReceived,
+      processedRows: finalMetrics.processedRows || 0,
       successfulRows: finalMetrics.successfulRows || 0,
       failedRows: finalMetrics.failedRows || 0,
       rowsPerSecond: finalMetrics.rowsPerSecond || 0,
+      progressPercent: 100,
       errors: finalMetrics.errors || [],
       completedAt
     });
@@ -100,9 +102,9 @@ async function processDataset(datasetId, jobId, options = {}) {
     };
   } catch (error) {
     console.error(`[ETL] Processing failed for job '${jobId}':`, error.message);
-    const completedAt = new Date();
+    const completedAt = new Date().toISOString();
 
-    await jobService.updateJob(jobId, {
+    const failedJob = await jobService.updateJob(jobId, {
       status: JOB_STATUS.FAILED,
       completedAt,
       error: error.message
@@ -112,12 +114,12 @@ async function processDataset(datasetId, jobId, options = {}) {
       success: false,
       jobId,
       status: JOB_STATUS.FAILED,
-      error: error.message
+      error: error.message,
+      job: failedJob
     };
   }
 }
 
-module.exports = {
+export default {
   processDataset
 };
-

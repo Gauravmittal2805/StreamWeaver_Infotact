@@ -1,4 +1,4 @@
-const { Transform } = require("stream");
+import { Transform } from "stream";
 
 /**
  * Streaming JSON Array Parser
@@ -15,7 +15,7 @@ const { Transform } = require("stream");
  * - Detects malformed objects and handles them without crashing
  * - Maintains stream backpressure
  */
-class JsonArrayParserStream extends Transform {
+export class JsonArrayParserStream extends Transform {
   constructor(options = {}) {
     super({
       ...options,
@@ -138,7 +138,9 @@ class JsonArrayParserStream extends Transform {
   _processBuffer(rawJson, rowNumber) {
     try {
       const record = JSON.parse(rawJson);
-      record._rowNumber = rowNumber;
+      if (typeof record === "object" && record !== null) {
+        record._rowNumber = rowNumber;
+      }
       this.push(record);
     } catch (err) {
       const malformed = {
@@ -156,11 +158,11 @@ class JsonArrayParserStream extends Transform {
   }
 }
 
-function createJSONParserStream(options = {}) {
+export function createJSONParserStream(options = {}) {
   return new JsonArrayParserStream(options);
 }
 
-module.exports = {
+export default {
   JsonArrayParserStream,
   createJSONParserStream
 };

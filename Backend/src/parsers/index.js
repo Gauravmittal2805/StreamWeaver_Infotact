@@ -1,8 +1,16 @@
-const { createParserStream, UnsupportedFormatError } = require("./parser.factory");
-const { createCSVParserStream } = require("./csv.parser");
-const { createJSONParserStream, JsonArrayParserStream } = require("./json.parser");
+import { createParserStream, UnsupportedFormatError } from "./parser.factory.js";
+import { createCSVParserStream } from "./csv.parser.js";
+import { createJSONParserStream, JsonArrayParserStream } from "./json.parser.js";
 
-module.exports = {
+export {
+  createParserStream,
+  UnsupportedFormatError,
+  createCSVParserStream,
+  createJSONParserStream,
+  JsonArrayParserStream
+};
+
+export default {
   createParserStream,
   UnsupportedFormatError,
   createCSVParserStream,

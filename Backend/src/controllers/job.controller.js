@@ -1,7 +1,7 @@
-const jobService = require("../services/job.service");
-const etlService = require("../services/etl.service");
+import * as jobService from "../services/job.service.js";
+import * as etlService from "../services/etl.service.js";
 
-async function createJob(req, res) {
+export async function createJob(req, res) {
   try {
     const { datasetId, autoStart = true } = req.body;
     if (!datasetId) {
@@ -35,7 +35,7 @@ async function createJob(req, res) {
   }
 }
 
-async function getJob(req, res) {
+export async function getJob(req, res) {
   try {
     const { jobId } = req.params;
     const job = await jobService.getJob(jobId);
@@ -58,7 +58,7 @@ async function getJob(req, res) {
   }
 }
 
-async function startJob(req, res) {
+export async function startJob(req, res) {
   try {
     const { jobId } = req.params;
     const job = await jobService.getJob(jobId);
@@ -88,9 +88,8 @@ async function startJob(req, res) {
   }
 }
 
-module.exports = {
+export default {
   createJob,
   getJob,
   startJob
 };
-
