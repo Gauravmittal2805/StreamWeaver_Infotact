@@ -1,11 +1,11 @@
-const { Transform } = require("stream");
+import { Transform } from "stream";
 
 /**
  * Creates the core ETL Transform Stream.
  * Stage responsibilities:
  * - Operates in objectMode
  * - Receives parsed records
- * - Performs basic sanitization and normalization
+ * - Performs basic sanitization, validation, and normalization (Step 10)
  * - Preserves streaming backpressure
  * - Passes processed record forward
  *
@@ -13,13 +13,27 @@ const { Transform } = require("stream");
  * @param {function} [options.transformFn] Optional custom transform function for testing
  * @returns {Transform}
  */
-function createETLTransform(options = {}) {
+export function createETLTransform(options = {}) {
   return new Transform({
     objectMode: true,
     transform(record, encoding, callback) {
       // If the incoming record is already marked as malformed from the parser, pass it through directly
       if (record && record._isMalformed) {
         return callback(null, record);
+      }
+
+      // Basic Record Validation (Step 10)
+      if (!record || typeof record !== "object" || Array.isArray(record)) {
+        const malformedRecord = {
+          _isMalformed: true,
+          rowNumber: (record && record._rowNumber) || null,
+          error: {
+            type: "INVALID_RECORD_FORMAT",
+            message: "Record is not a valid non-null object"
+          },
+          raw: record
+        };
+        return callback(null, malformedRecord);
       }
 
       try {
@@ -60,7 +74,6 @@ function createETLTransform(options = {}) {
   });
 }
 
-module.exports = {
+export default {
   createETLTransform
 };
-

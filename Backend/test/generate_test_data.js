@@ -1,7 +1,11 @@
-const fs = require("fs");
-const path = require("path");
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
-const DATA_DIR = path.join(__dirname, "data");
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+export const DATA_DIR = path.join(__dirname, "data");
 
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) {
@@ -18,7 +22,7 @@ function ensureDataDir() {
  * @param {number} [options.malformedInterval=0] If > 0, injects a malformed row every N rows
  * @returns {Promise<string>} File path
  */
-async function generateTestCSV(filename, rowCount, options = {}) {
+export async function generateTestCSV(filename, rowCount, options = {}) {
   ensureDataDir();
   const filePath = path.join(DATA_DIR, filename);
   const writeStream = fs.createWriteStream(filePath, { encoding: "utf8", highWaterMark: 64 * 1024 });
@@ -63,7 +67,7 @@ async function generateTestCSV(filename, rowCount, options = {}) {
   });
 }
 
-async function generateTestJSON(filename, rowCount, options = {}) {
+export async function generateTestJSON(filename, rowCount, options = {}) {
   ensureDataDir();
   const filePath = path.join(DATA_DIR, filename);
   const writeStream = fs.createWriteStream(filePath, { encoding: "utf8", highWaterMark: 64 * 1024 });
@@ -81,7 +85,7 @@ async function generateTestJSON(filename, rowCount, options = {}) {
           i++;
           const comma = i === rowCount ? "\n" : ",\n";
           if (malformedInterval > 0 && i % malformedInterval === 0) {
-            // Malformed JSON object syntax (unquoted value and missing quotes on keys)
+            // Malformed JSON object syntax
             buffer += `  {"id": ${i}, "name": "Broken_${i}", invalid_key_unquoted: undefined_value}${comma}`;
           } else {
             buffer += `  {"id": ${i}, "name": "User_${i}", "email": "user${i}@example.com", "age": ${20 + (i % 50)}, "city": "City_${i}"}${comma}`;
@@ -110,7 +114,7 @@ async function generateTestJSON(filename, rowCount, options = {}) {
   });
 }
 
-module.exports = {
+export default {
   DATA_DIR,
   generateTestCSV,
   generateTestJSON

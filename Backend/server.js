@@ -2,6 +2,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import fileRoutes from './src/routes/file.routes.js';
+import jobRoutes from './src/routes/job.routes.js';
 
 // Load environment variables
 dotenv.config();
@@ -22,11 +23,16 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// File routes
+// File and Job routes
 app.use('/api/files', fileRoutes);
+app.use('/api/jobs', jobRoutes);
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`🚀 StreamWeaver Backend is running on port ${PORT}`);
-  console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
-});
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, () => {
+    console.log(`🚀 StreamWeaver Backend is running on port ${PORT}`);
+    console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
+  });
+}
+
+export default app;

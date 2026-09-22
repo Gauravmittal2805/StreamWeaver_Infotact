@@ -1,7 +1,7 @@
-const express = require("express");
-const cors = require("cors");
-const jobRoutes = require("./routes/job.routes");
-const fileRoutes = require("./routes/file.routes");
+import express from "express";
+import cors from "cors";
+import jobRoutes from "./routes/job.routes.js";
+import fileRoutes from "./routes/file.routes.js";
 
 const app = express();
 
@@ -19,4 +19,4 @@ app.get("/health", (req, res) => {
   });
 });
 
-module.exports = app;
+export default app;

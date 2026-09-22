@@ -1,13 +1,15 @@
-require("dotenv").config();
-const fs = require("fs");
-const path = require("path");
-const { Readable } = require("stream");
-const { pipeline } = require("stream/promises");
-const { createCSVParserStream } = require("../src/parsers/csv.parser");
-const { createJSONParserStream } = require("../src/parsers/json.parser");
-const { createETLTransform } = require("../src/streams/etl.stream");
-const { createCounterStream } = require("../src/streams/counter.stream");
-const { generateTestCSV, generateTestJSON, DATA_DIR } = require("./generate_test_data");
+import dotenv from "dotenv";
+dotenv.config();
+
+import fs from "fs";
+import path from "path";
+import { Readable } from "stream";
+import { pipeline } from "stream/promises";
+import { createCSVParserStream } from "../src/parsers/csv.parser.js";
+import { createJSONParserStream } from "../src/parsers/json.parser.js";
+import { createETLTransform } from "../src/streams/etl.stream.js";
+import { createCounterStream } from "../src/streams/counter.stream.js";
+import { generateTestCSV, generateTestJSON, DATA_DIR } from "./generate_test_data.js";
 
 function formatMB(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
@@ -150,9 +152,7 @@ async function runMemoryAudit() {
     const csv1mPath = await generateTestCSV("test_1m.csv", 1000000, { malformedInterval: 100000 });
     results.push(await benchmarkStream("CSV 1M", "csv", csv1mPath, 1000000));
 
-    // ----------------------------------------------------
-    // Memory Audit Verification & Summary
-    // ----------------------------------------------------
+    // Summary
     console.log("\n============================================================");
     console.log("                   Memory Audit Summary                     ");
     console.log("============================================================");
@@ -167,8 +167,6 @@ async function runMemoryAudit() {
       console.log(`${name} | ${rows} | ${tps} | ${heap} | ${rss}`);
     }
 
-    // Assertions for Day 2 success criteria:
-    // Processing 1M rows must not cause proportional memory growth (peak heap must stay bounded)
     const csv100k = results.find((r) => r.label === "CSV 100K");
     const csv500k = results.find((r) => r.label === "CSV 500K");
     const csv1m = results.find((r) => r.label === "CSV 1M");
@@ -178,14 +176,10 @@ async function runMemoryAudit() {
     if (csv500k) console.log(`500K Rows Peak Heap: ${formatMB(csv500k.memStats.peakHeap)}`);
     console.log(`1M Rows Peak Heap:   ${formatMB(csv1m.memStats.peakHeap)}`);
 
-    // Key invariant: going from 500K to 1M rows (2x data) must not double heap usage.
-    // This proves O(1) streaming memory — heap stays flat regardless of file size.
-    // Absolute cap: 600 MB is a generous upper bound that catches true heap leaks.
     if (csv1m.memStats.peakHeap > 600 * 1024 * 1024) {
       throw new Error(`Memory audit failed: Peak heap (${formatMB(csv1m.memStats.peakHeap)}) exceeded 600 MB! Potential memory leak.`);
     }
 
-    // Proportional growth check: 1M heap should be < 3x the 100K heap (not 10x)
     const growthRatio = csv1m.memStats.peakHeap / csv100k.memStats.peakHeap;
     console.log(`Growth ratio (1M vs 100K): ${growthRatio.toFixed(2)}x (target: < 10x, proportional would be 10x)`);
     if (growthRatio > 10) {
@@ -194,7 +188,6 @@ async function runMemoryAudit() {
 
     console.log("\n✓ MEMORY AUDIT PASSED: Memory consumption remains flat and O(1) across dataset scales!");
   } finally {
-    // Cleanup generated files to save disk space
     if (fs.existsSync(DATA_DIR)) {
       try {
         const files = fs.readdirSync(DATA_DIR);
