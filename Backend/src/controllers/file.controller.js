@@ -3,7 +3,8 @@ import {
   getDataset, 
   getAllDatasets, 
   deleteDataset,
-  isDatasetReady 
+  isDatasetReady,
+  getProgress
 } from '../services/file.service.js';
 import { getDatasetInfo } from '../services/dataset.service.js';
 
@@ -177,6 +178,39 @@ export async function handleDeleteDataset(req, res) {
     res.status(500).json({
       success: false,
       message: 'Failed to delete dataset',
+      error: error.message
+    });
+  }
+}
+
+/**
+ * Get upload progress for a dataset (Step 13 - for Member 3)
+ * @param {Object} req - Express request
+ * @param {Object} res - Express response
+ */
+export async function handleGetProgress(req, res) {
+  try {
+    const { datasetId } = req.params;
+    
+    const progress = getProgress(datasetId);
+    
+    if (!progress) {
+      return res.status(404).json({
+        success: false,
+        message: 'Progress data not found (upload may be complete or not started)'
+      });
+    }
+    
+    res.status(200).json({
+      success: true,
+      progress
+    });
+  } catch (error) {
+    console.error('❌ Get progress error:', error.message);
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve progress',
       error: error.message
     });
   }
