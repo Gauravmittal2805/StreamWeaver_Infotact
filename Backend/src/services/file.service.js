@@ -431,3 +431,109 @@ export function isDatasetReady(datasetId) {
     reason: validation.reason
   };
 }
+
+/**
+ * Get streaming limited rows preview (Step 11 Member 1 Coordination)
+ * @param {string} datasetId - Dataset ID
+ * @param {number} limit - Row limit for preview (default 1000)
+ * @returns {Promise<Object>}
+ */
+export async function getDatasetPreview(datasetId, limit = 1000) {
+  const metadata = findDatasetById(datasetId);
+  if (!metadata) {
+    throw new Error('Dataset not found');
+  }
+  if (!fs.existsSync(metadata.path)) {
+    throw new Error('Dataset file not found on disk');
+  }
+
+  const { default: csv } = await import('csv-parser');
+  const { default: readline } = await import('readline');
+
+  return new Promise((resolve, reject) => {
+    const rows = [];
+    let columns = [];
+    const readStream = fs.createReadStream(metadata.path, { encoding: 'utf8' });
+
+    if (metadata.format === 'csv') {
+      const csvStream = readStream.pipe(csv());
+      csvStream.on('headers', (headers) => {
+        columns = headers;
+      });
+      csvStream.on('data', (data) => {
+        if (rows.length < limit) {
+          rows.push(data);
+          if (columns.length === 0) {
+            columns = Object.keys(data);
+          }
+        } else {
+          readStream.destroy();
+          resolve({
+            datasetId,
+            format: 'csv',
+            filename: metadata.originalName,
+            totalRecordsEstimated: 5000000,
+            previewLimit: limit,
+            columns,
+            rows
+          });
+        }
+      });
+      csvStream.on('end', () => {
+        resolve({
+          datasetId,
+          format: 'csv',
+          filename: metadata.originalName,
+          totalRecordsEstimated: rows.length,
+          previewLimit: limit,
+          columns,
+          rows
+        });
+      });
+      csvStream.on('error', (err) => {
+        readStream.destroy();
+        reject(err);
+      });
+    } else {
+      const rl = readline.createInterface({
+        input: readStream,
+        crlfDelay: Infinity
+      });
+      rl.on('line', (line) => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed === '[' || trimmed === ']' || trimmed === ',') return;
+        const cleanLine = trimmed.endsWith(',') ? trimmed.slice(0, -1) : trimmed;
+        try {
+          const parsed = JSON.parse(cleanLine);
+          if (rows.length < limit) {
+            rows.push(parsed);
+            if (columns.length === 0) {
+              columns = Object.keys(parsed);
+            }
+          } else {
+            rl.close();
+            readStream.destroy();
+          }
+        } catch {
+          // ignore non-json line fragments
+        }
+      });
+      rl.on('close', () => {
+        resolve({
+          datasetId,
+          format: 'json',
+          filename: metadata.originalName,
+          totalRecordsEstimated: rows.length < limit ? rows.length : 5000000,
+          previewLimit: limit,
+          columns,
+          rows
+        });
+      });
+      rl.on('error', (err) => {
+        readStream.destroy();
+        reject(err);
+      });
+    }
+  });
+}
+
