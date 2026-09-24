@@ -1,9 +1,12 @@
 import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 
 /**
- * Enterprise Virtualized Data Grid Component (Steps 8 & 9)
- * Efficiently renders tabular data (1,000 to 100,000+ rows)
- * using windowing so only visible DOM rows are mounted.
+ * Enterprise Virtualized Data Grid
+ * - Sticky header (fixed during vertical scroll, synchronized with horizontal scroll)
+ * - Row numbers fixed column
+ * - Windowed rendering (only visible DOM rows mounted)
+ * - Tooltip on long cell values
+ * - Horizontal + vertical scroll sync
  */
 export function VirtualizedGrid({
   columns = [],
@@ -12,149 +15,182 @@ export function VirtualizedGrid({
   height = 560,
   className = '',
 }) {
-  const containerRef = useRef(null);
+  const outerRef = useRef(null);       // The scrollable container
+  const headerRef = useRef(null);      // The sticky header bar
   const [scrollTop, setScrollTop] = useState(0);
-  const [containerWidth, setContainerWidth] = useState(0);
+  const [scrollLeft, setScrollLeft] = useState(0);
 
-  // ResizeObserver for responsive width
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setContainerWidth(entry.contentRect.width);
-      }
-    });
-    observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, []);
-
-  const handleScroll = useCallback((e) => {
-    setScrollTop(e.currentTarget.scrollTop);
-  }, []);
+  // Compute which columns to display: use provided columns, fall back to keys of first row
+  const displayColumns = useMemo(() => {
+    if (columns && columns.length > 0) return columns;
+    if (rows && rows.length > 0) return Object.keys(rows[0]);
+    return [];
+  }, [columns, rows]);
 
   const totalRows = rows.length;
   const totalHeight = totalRows * rowHeight;
 
-  // Windowing calculation with overscan buffer
-  const overscan = 6;
-  const startIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
-  const endIndex = Math.min(totalRows, Math.floor((scrollTop + height) / rowHeight) + overscan);
+  // Column sizing
+  const ROW_NUM_WIDTH = 56;
+  const COL_MIN_WIDTH = 160;
+  const totalContentWidth = ROW_NUM_WIDTH + displayColumns.length * COL_MIN_WIDTH;
 
-  const visibleRows = useMemo(() => {
+  // Windowing with overscan
+  const overscan = 8;
+  const visibleStart = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
+  const visibleEnd = Math.min(totalRows, Math.ceil((scrollTop + height) / rowHeight) + overscan);
+
+  const visibleItems = useMemo(() => {
     const items = [];
-    for (let i = startIndex; i < endIndex; i++) {
-      items.push({
-        index: i,
-        data: rows[i],
-        top: i * rowHeight,
-      });
+    for (let i = visibleStart; i < visibleEnd; i++) {
+      items.push({ index: i, data: rows[i], top: i * rowHeight });
     }
     return items;
-  }, [rows, startIndex, endIndex, rowHeight]);
+  }, [rows, visibleStart, visibleEnd, rowHeight]);
 
-  // Compute column formatting
-  const formattedColumns = useMemo(() => {
-    if (columns.length > 0) return columns;
-    if (rows.length > 0) return Object.keys(rows[0]);
-    return [];
-  }, [columns, rows]);
+  // Sync scroll: update state on scroll event
+  const handleScroll = useCallback((e) => {
+    const { scrollTop: st, scrollLeft: sl } = e.currentTarget;
+    setScrollTop(st);
+    setScrollLeft(sl);
+    // Keep header synchronized horizontally
+    if (headerRef.current) {
+      headerRef.current.scrollLeft = sl;
+    }
+  }, []);
+
+  // Keep header scroll position synced on mount / col changes
+  useEffect(() => {
+    if (headerRef.current) {
+      headerRef.current.scrollLeft = scrollLeft;
+    }
+  }, [scrollLeft]);
 
   if (totalRows === 0) {
     return (
       <div className="flex flex-col items-center justify-center p-12 text-center bg-white border border-slate-200 rounded-xl">
         <p className="text-sm font-semibold text-slate-700">No records found</p>
-        <p className="text-xs text-slate-400 mt-1">This dataset appears to be empty.</p>
+        <p className="text-xs text-slate-400 mt-1">This dataset appears to be empty or the search returned no results.</p>
       </div>
     );
   }
 
   return (
     <div className={`enterprise-card rounded-xl overflow-hidden bg-white flex flex-col ${className}`}>
-      {/* Scrollable Container */}
+
+      {/* ── Sticky Header (overflow hidden so it follows horizontal scroll via JS) ── */}
       <div
-        ref={containerRef}
-        onScroll={handleScroll}
-        style={{ height, maxHeight: height }}
-        className="overflow-auto relative custom-scrollbar select-text focus:outline-none"
-        tabIndex={0}
+        ref={headerRef}
+        className="overflow-hidden shrink-0 bg-slate-100/95 border-b border-slate-200 text-xs font-bold text-slate-600 uppercase tracking-wider shadow-xs"
+        style={{ height: 40 }}
+        aria-hidden="true"
       >
-        {/* Inner sizing container to establish scroll geometry */}
-        <div style={{ minWidth: Math.max(containerWidth, formattedColumns.length * 160 + 80), width: '100%', height: totalHeight + 40, position: 'relative' }}>
-          
-          {/* Sticky Header Row */}
+        {/* Inner flex row — width matches body content */}
+        <div
+          className="flex items-center h-full"
+          style={{ minWidth: totalContentWidth }}
+        >
+          {/* Row-number header cell */}
           <div
-            className="sticky top-0 z-20 flex items-center bg-slate-100/95 backdrop-blur-xs border-b border-slate-200 text-xs font-bold text-slate-600 uppercase tracking-wider shadow-xs"
-            style={{ height: 40 }}
+            className="shrink-0 flex items-center justify-center border-r border-slate-200 text-slate-400 font-mono"
+            style={{ width: ROW_NUM_WIDTH, height: '100%' }}
           >
-            {/* Row Number Header */}
-            <div className="w-16 px-3 py-2.5 text-center shrink-0 border-r border-slate-200 text-slate-400 font-mono">
-              #
+            #
+          </div>
+
+          {/* Column header cells */}
+          {displayColumns.map((col) => (
+            <div
+              key={col}
+              className="flex items-center px-4 border-r border-slate-200/60 last:border-r-0 truncate"
+              style={{ minWidth: COL_MIN_WIDTH, height: '100%' }}
+              title={col}
+            >
+              {col}
             </div>
-
-            {/* Column Headers */}
-            {formattedColumns.map((col) => (
-              <div
-                key={col}
-                className="flex-1 min-w-[150px] px-4 py-2.5 text-left truncate border-r border-slate-200/60 last:border-r-0"
-                title={col}
-              >
-                {col}
-              </div>
-            ))}
-          </div>
-
-          {/* Virtualized Rows Container */}
-          <div className="relative w-full" style={{ height: totalHeight }}>
-            {visibleRows.map(({ index, data, top }) => {
-              if (!data) return null;
-              const isEven = index % 2 === 0;
-
-              return (
-                <div
-                  key={index}
-                  className={`absolute left-0 right-0 flex items-center text-xs border-b border-slate-100 transition-colors ${
-                    isEven ? 'bg-white' : 'bg-slate-50/50'
-                  } hover:bg-indigo-50/50 group`}
-                  style={{
-                    top,
-                    height: rowHeight,
-                  }}
-                >
-                  {/* Row Number */}
-                  <div className="w-16 px-3 text-center shrink-0 text-[11px] font-mono text-slate-400 border-r border-slate-100 group-hover:text-indigo-600 group-hover:font-semibold">
-                    {index + 1}
-                  </div>
-
-                  {/* Cell Data */}
-                  {formattedColumns.map((col) => {
-                    const cellValue = data[col] !== undefined && data[col] !== null ? String(data[col]) : '—';
-                    return (
-                      <div
-                        key={col}
-                        className="flex-1 min-w-[150px] px-4 truncate text-slate-700 font-normal border-r border-slate-100/60 last:border-r-0"
-                        title={cellValue}
-                      >
-                        {cellValue}
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })}
-          </div>
+          ))}
         </div>
       </div>
 
-      {/* Grid Footer Bar */}
-      <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-200 text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2">
+      {/* ── Scrollable Body ── */}
+      <div
+        ref={outerRef}
+        onScroll={handleScroll}
+        className="overflow-auto custom-scrollbar focus:outline-none"
+        style={{ height, maxHeight: height }}
+        tabIndex={0}
+      >
+        {/* Total height spacer so scrollbar is correct */}
+        <div style={{ minWidth: totalContentWidth, height: totalHeight, position: 'relative' }}>
+
+          {/* Windowed rows */}
+          {visibleItems.map(({ index, data, top }) => {
+            if (!data) return null;
+            const isEven = index % 2 === 0;
+
+            return (
+              <div
+                key={index}
+                className={`absolute left-0 flex items-center text-xs border-b border-slate-100 group transition-colors ${
+                  isEven ? 'bg-white' : 'bg-slate-50/50'
+                } hover:bg-indigo-50/40`}
+                style={{
+                  top,
+                  height: rowHeight,
+                  minWidth: totalContentWidth,
+                  width: '100%',
+                }}
+              >
+                {/* Row number */}
+                <div
+                  className="shrink-0 flex items-center justify-center text-[11px] font-mono text-slate-400 border-r border-slate-100 group-hover:text-indigo-600 group-hover:font-semibold"
+                  style={{ width: ROW_NUM_WIDTH, height: '100%' }}
+                >
+                  {index + 1}
+                </div>
+
+                {/* Cell data */}
+                {displayColumns.map((col) => {
+                  const raw = data[col];
+                  const cellValue = raw !== undefined && raw !== null ? String(raw) : '—';
+                  const isLong = cellValue.length > 60;
+
+                  return (
+                    <div
+                      key={col}
+                      className="flex items-center px-4 border-r border-slate-100/60 last:border-r-0 text-slate-700 font-normal"
+                      style={{ minWidth: COL_MIN_WIDTH, height: '100%' }}
+                    >
+                      {isLong ? (
+                        <span
+                          className="truncate max-w-full cursor-help"
+                          title={cellValue}
+                        >
+                          {cellValue}
+                        </span>
+                      ) : (
+                        <span className="truncate max-w-full">{cellValue}</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Footer stats bar ── */}
+      <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-200 text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2 shrink-0">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
           <span>
-            Showing <strong className="text-slate-800 font-mono">1 – {totalRows.toLocaleString()}</strong> rows (virtual window active: {visibleRows.length} DOM rows rendered)
+            Showing <strong className="text-slate-800 font-mono">1 – {totalRows.toLocaleString()}</strong> rows
+            <span className="text-slate-400"> • virtual window: {visibleItems.length} DOM rows</span>
           </span>
         </div>
         <div className="text-[11px] text-slate-400 font-mono">
-          {formattedColumns.length} columns • 60 FPS Virtualized Engine
+          {displayColumns.length} columns • Virtualized Rendering
         </div>
       </div>
     </div>

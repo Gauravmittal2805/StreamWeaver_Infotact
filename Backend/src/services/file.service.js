@@ -453,53 +453,76 @@ export async function getDatasetPreview(datasetId, limit = 1000) {
   return new Promise((resolve, reject) => {
     const rows = [];
     let columns = [];
+    // Guard flag to prevent double-resolve (CSV 'end' can fire after readStream.destroy())
+    let resolved = false;
+
+    const doResolve = (payload) => {
+      if (resolved) return;
+      resolved = true;
+      resolve(payload);
+    };
+
     const readStream = fs.createReadStream(metadata.path, { encoding: 'utf8' });
 
     if (metadata.format === 'csv') {
       const csvStream = readStream.pipe(csv());
+
       csvStream.on('headers', (headers) => {
         columns = headers;
       });
+
       csvStream.on('data', (data) => {
+        if (resolved) return;
         if (rows.length < limit) {
           rows.push(data);
           if (columns.length === 0) {
             columns = Object.keys(data);
           }
         } else {
+          // Hit the limit — stop streaming; file is larger than preview window
           readStream.destroy();
-          resolve({
+          doResolve({
             datasetId,
             format: 'csv',
             filename: metadata.originalName,
-            totalRecordsEstimated: 5000000,
+            totalRecordsEstimated: null, // Unknown — do not fabricate
             previewLimit: limit,
             columns,
-            rows
+            rows,
           });
         }
       });
+
       csvStream.on('end', () => {
-        resolve({
+        // Reached EOF naturally — actual row count is known
+        doResolve({
           datasetId,
           format: 'csv',
           filename: metadata.originalName,
-          totalRecordsEstimated: rows.length,
+          totalRecordsEstimated: rows.length, // Exact count for small files
           previewLimit: limit,
           columns,
-          rows
+          rows,
         });
       });
+
       csvStream.on('error', (err) => {
-        readStream.destroy();
-        reject(err);
+        if (!resolved) {
+          resolved = true;
+          readStream.destroy();
+          reject(err);
+        }
       });
+
     } else {
+      // JSON: line-by-line
       const rl = readline.createInterface({
         input: readStream,
-        crlfDelay: Infinity
+        crlfDelay: Infinity,
       });
+
       rl.on('line', (line) => {
+        if (resolved) return;
         const trimmed = line.trim();
         if (!trimmed || trimmed === '[' || trimmed === ']' || trimmed === ',') return;
         const cleanLine = trimmed.endsWith(',') ? trimmed.slice(0, -1) : trimmed;
@@ -518,20 +541,26 @@ export async function getDatasetPreview(datasetId, limit = 1000) {
           // ignore non-json line fragments
         }
       });
+
       rl.on('close', () => {
-        resolve({
+        doResolve({
           datasetId,
           format: 'json',
           filename: metadata.originalName,
-          totalRecordsEstimated: rows.length < limit ? rows.length : 5000000,
+          // Exact count when small; null when file is larger than limit
+          totalRecordsEstimated: rows.length < limit ? rows.length : null,
           previewLimit: limit,
           columns,
-          rows
+          rows,
         });
       });
+
       rl.on('error', (err) => {
-        readStream.destroy();
-        reject(err);
+        if (!resolved) {
+          resolved = true;
+          readStream.destroy();
+          reject(err);
+        }
       });
     }
   });

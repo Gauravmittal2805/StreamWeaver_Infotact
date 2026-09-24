@@ -13,7 +13,7 @@ const pageTitles = {
   '/': { title: 'Platform Dashboard', subtitle: 'Overview of streaming ETL datasets, real-time jobs & system throughput' },
   '/upload': { title: 'Upload Dataset', subtitle: 'Stream large CSV and JSON datasets with automatic memory backpressure' },
   '/datasets': { title: 'Datasets Inventory', subtitle: 'Manage uploaded data sources and inspect structural readiness' },
-  '/pipelines': { title: 'Pipeline Builder', subtitle: 'Design streaming transform pipelines (Day 2 Milestone)' },
+  '/pipelines': { title: 'Pipeline Builder', subtitle: 'Design and manage streaming ETL transform pipelines' },
   '/jobs': { title: 'ETL Processing Jobs', subtitle: 'Monitor active and completed distributed processing tasks' },
   '/history': { title: 'Execution History', subtitle: 'Audit log of previous pipeline runs and transformation metrics' },
   '/settings': { title: 'Platform Settings', subtitle: 'Configure ingestion chunk sizes, storage paths, and worker limits' },

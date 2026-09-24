@@ -191,10 +191,10 @@ export const fileService = {
       datasetId,
       format: datasetId?.includes('json') ? 'json' : 'csv',
       filename: `${datasetId || 'dataset'}.csv`,
-      totalRecordsEstimated: 5000000,
+      totalRecordsEstimated: null, // Unknown — do not fabricate for large files
       previewLimit: limit,
       columns,
-      rows
+      rows,
     };
   }
 };
