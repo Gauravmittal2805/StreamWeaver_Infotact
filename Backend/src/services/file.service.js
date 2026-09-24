@@ -431,3 +431,138 @@ export function isDatasetReady(datasetId) {
     reason: validation.reason
   };
 }
+
+/**
+ * Get streaming limited rows preview (Step 11 Member 1 Coordination)
+ * @param {string} datasetId - Dataset ID
+ * @param {number} limit - Row limit for preview (default 1000)
+ * @returns {Promise<Object>}
+ */
+export async function getDatasetPreview(datasetId, limit = 1000) {
+  const metadata = findDatasetById(datasetId);
+  if (!metadata) {
+    throw new Error('Dataset not found');
+  }
+  if (!fs.existsSync(metadata.path)) {
+    throw new Error('Dataset file not found on disk');
+  }
+
+  const { default: csv } = await import('csv-parser');
+  const { default: readline } = await import('readline');
+
+  return new Promise((resolve, reject) => {
+    const rows = [];
+    let columns = [];
+    // Guard flag to prevent double-resolve (CSV 'end' can fire after readStream.destroy())
+    let resolved = false;
+
+    const doResolve = (payload) => {
+      if (resolved) return;
+      resolved = true;
+      resolve(payload);
+    };
+
+    const readStream = fs.createReadStream(metadata.path, { encoding: 'utf8' });
+
+    if (metadata.format === 'csv') {
+      const csvStream = readStream.pipe(csv());
+
+      csvStream.on('headers', (headers) => {
+        columns = headers;
+      });
+
+      csvStream.on('data', (data) => {
+        if (resolved) return;
+        if (rows.length < limit) {
+          rows.push(data);
+          if (columns.length === 0) {
+            columns = Object.keys(data);
+          }
+        } else {
+          // Hit the limit — stop streaming; file is larger than preview window
+          readStream.destroy();
+          doResolve({
+            datasetId,
+            format: 'csv',
+            filename: metadata.originalName,
+            totalRecordsEstimated: null, // Unknown — do not fabricate
+            previewLimit: limit,
+            columns,
+            rows,
+          });
+        }
+      });
+
+      csvStream.on('end', () => {
+        // Reached EOF naturally — actual row count is known
+        doResolve({
+          datasetId,
+          format: 'csv',
+          filename: metadata.originalName,
+          totalRecordsEstimated: rows.length, // Exact count for small files
+          previewLimit: limit,
+          columns,
+          rows,
+        });
+      });
+
+      csvStream.on('error', (err) => {
+        if (!resolved) {
+          resolved = true;
+          readStream.destroy();
+          reject(err);
+        }
+      });
+
+    } else {
+      // JSON: line-by-line
+      const rl = readline.createInterface({
+        input: readStream,
+        crlfDelay: Infinity,
+      });
+
+      rl.on('line', (line) => {
+        if (resolved) return;
+        const trimmed = line.trim();
+        if (!trimmed || trimmed === '[' || trimmed === ']' || trimmed === ',') return;
+        const cleanLine = trimmed.endsWith(',') ? trimmed.slice(0, -1) : trimmed;
+        try {
+          const parsed = JSON.parse(cleanLine);
+          if (rows.length < limit) {
+            rows.push(parsed);
+            if (columns.length === 0) {
+              columns = Object.keys(parsed);
+            }
+          } else {
+            rl.close();
+            readStream.destroy();
+          }
+        } catch {
+          // ignore non-json line fragments
+        }
+      });
+
+      rl.on('close', () => {
+        doResolve({
+          datasetId,
+          format: 'json',
+          filename: metadata.originalName,
+          // Exact count when small; null when file is larger than limit
+          totalRecordsEstimated: rows.length < limit ? rows.length : null,
+          previewLimit: limit,
+          columns,
+          rows,
+        });
+      });
+
+      rl.on('error', (err) => {
+        if (!resolved) {
+          resolved = true;
+          readStream.destroy();
+          reject(err);
+        }
+      });
+    }
+  });
+}
+

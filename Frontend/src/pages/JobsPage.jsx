@@ -66,7 +66,7 @@ export function JobsPage() {
             variant="primary"
             size="sm"
             leftIcon={Play}
-            onClick={() => alert('New Job Dispatcher integrated with Day 2 Transform Engine.')}
+            onClick={() => alert('Job dispatcher coming soon.')}
           >
             Dispatch Job
           </Button>

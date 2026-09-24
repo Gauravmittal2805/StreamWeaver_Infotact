@@ -47,10 +47,7 @@ export function PipelinesPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-2xl font-bold tracking-tight text-slate-900">Streaming Pipelines</h2>
-            <Badge variant="purple" size="sm">Day 2 Milestone</Badge>
-          </div>
+          <h2 className="text-2xl font-bold tracking-tight text-slate-900">Streaming Pipelines</h2>
           <p className="text-sm text-slate-500 mt-0.5">
             Configure visual data flow pipelines, field transformations, and streaming output sinks.
           </p>
@@ -59,7 +56,7 @@ export function PipelinesPage() {
         <Button
           variant="primary"
           leftIcon={Plus}
-          onClick={() => alert('Visual Pipeline Builder is scheduled for Day 2.')}
+          onClick={() => alert('Visual Pipeline Builder coming soon.')}
         >
           Create New Pipeline
         </Button>
@@ -101,7 +98,7 @@ export function PipelinesPage() {
               <button
                 type="button"
                 className="text-indigo-600 hover:text-indigo-800 font-semibold inline-flex items-center gap-1 cursor-pointer"
-                onClick={() => alert('Pipeline details inspector ready on Day 2.')}
+                onClick={() => alert('Pipeline inspector coming soon.')}
               >
                 Inspect <ArrowRight className="w-3.5 h-3.5" />
               </button>

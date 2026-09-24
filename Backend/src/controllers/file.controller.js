@@ -258,3 +258,32 @@ export async function handleCheckDataset(req, res) {
     });
   }
 }
+
+/**
+ * Handle dataset preview request (Step 11 Member 1 Coordination)
+ * @param {Object} req - Express request
+ * @param {Object} res - Express response
+ */
+export async function handleGetPreview(req, res) {
+  try {
+    const { datasetId } = req.params;
+    const limit = parseInt(req.query.limit, 10) || 1000;
+
+    const { getDatasetPreview } = await import('../services/file.service.js');
+    const previewData = await getDatasetPreview(datasetId, limit);
+
+    res.status(200).json({
+      success: true,
+      preview: previewData
+    });
+  } catch (error) {
+    console.error('❌ Get preview error:', error.message);
+    const status = error.message === 'Dataset not found' ? 404 : 500;
+    res.status(status).json({
+      success: false,
+      message: 'Failed to retrieve dataset preview',
+      error: error.message
+    });
+  }
+}
+

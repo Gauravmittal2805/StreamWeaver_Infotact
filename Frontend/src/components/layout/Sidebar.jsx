@@ -17,7 +17,7 @@ const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard, exact: true },
   { name: 'Upload Dataset', href: '/upload', icon: UploadCloud },
   { name: 'Datasets', href: '/datasets', icon: Database },
-  { name: 'Pipelines', href: '/pipelines', icon: Workflow, badge: 'Day 2' },
+  { name: 'Pipelines', href: '/pipelines', icon: Workflow },
   { name: 'Jobs', href: '/jobs', icon: Activity },
   { name: 'History', href: '/history', icon: History },
   { name: 'Settings', href: '/settings', icon: Settings },
