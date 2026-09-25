@@ -165,7 +165,7 @@ export function DatasetPreviewPage() {
     try {
       const result = await fileService.getDatasetPreview(datasetId, {
         limit: 1000,
-        fallbackMock: true,
+        fallbackMock: false,
       });
       setPreviewData(result);
     } catch (err) {
@@ -186,7 +186,7 @@ export function DatasetPreviewPage() {
 
     Promise.allSettled([
       fileService.getDataset(datasetId),
-      fileService.getDatasetPreview(datasetId, { limit: 1000, fallbackMock: true }),
+      fileService.getDatasetPreview(datasetId, { limit: 1000, fallbackMock: false }),
     ]).then(([metaRes, previewRes]) => {
       if (!active) return;
 

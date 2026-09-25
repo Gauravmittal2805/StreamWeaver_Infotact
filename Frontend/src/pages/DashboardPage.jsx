@@ -22,40 +22,7 @@ import StatusBadge from '../components/common/StatusBadge';
 import { useDatasets } from '../hooks/useDatasets';
 import { formatBytes, formatDate, formatNumber } from '../utils/formatters';
 
-const MOCK_RECENT_ACTIVITY = [
-  {
-    id: 'act-1',
-    type: 'upload',
-    title: 'Dataset uploaded: e-commerce-transactions.csv',
-    timestamp: '2026-09-22T13:45:00.000Z',
-    status: 'completed',
-    size: '2.4 GB',
-  },
-  {
-    id: 'act-2',
-    type: 'pipeline',
-    title: 'Customer Data Cleansing & Deduplication Pipeline',
-    timestamp: '2026-09-22T13:10:00.000Z',
-    status: 'running',
-    size: '1.8M records',
-  },
-  {
-    id: 'act-3',
-    type: 'job',
-    title: 'Real-time JSON Stream Parser Batch #402',
-    timestamp: '2026-09-22T12:00:00.000Z',
-    status: 'completed',
-    size: '500 MB',
-  },
-  {
-    id: 'act-4',
-    type: 'audit',
-    title: 'Schema Validation & Anomaly Quarantine',
-    timestamp: '2026-09-22T10:30:00.000Z',
-    status: 'ready',
-    size: '12 quarantined',
-  },
-];
+
 
 export function DashboardPage() {
   const { datasets, loading } = useDatasets();
@@ -249,43 +216,48 @@ export function DashboardPage() {
               description="System pipeline events & audit logs"
             />
             <CardBody className="p-5">
-              <div className="flow-root">
-                <ul className="-mb-6">
-                  {MOCK_RECENT_ACTIVITY.map((activity, idx) => (
-                    <li key={activity.id} className="relative pb-6">
-                      {idx !== MOCK_RECENT_ACTIVITY.length - 1 ? (
-                        <span
-                          className="absolute top-4 left-4 -ml-px h-full w-0.5 bg-slate-200"
-                          aria-hidden="true"
-                        />
-                      ) : null}
-                      <div className="relative flex space-x-3">
-                        <div>
-                          <span className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center ring-4 ring-white">
-                            {activity.type === 'upload' && <UploadCloud className="w-4 h-4 text-indigo-600" />}
-                            {activity.type === 'pipeline' && <Layers className="w-4 h-4 text-emerald-600" />}
-                            {activity.type === 'job' && <Activity className="w-4 h-4 text-sky-600" />}
-                            {activity.type === 'audit' && <CheckCircle2 className="w-4 h-4 text-amber-600" />}
-                          </span>
-                        </div>
-                        <div className="min-w-0 flex-1 pt-1 flex justify-between space-x-4">
+              {datasets.length === 0 ? (
+                <EmptyState
+                  title="No recent activity"
+                  description="Upload a dataset to see real-time pipeline events and upload activity."
+                  icon={Activity}
+                />
+              ) : (
+                <div className="flow-root">
+                  <ul className="-mb-6">
+                    {datasets.slice(0, 5).map((dataset, idx) => (
+                      <li key={dataset.id} className="relative pb-6">
+                        {idx !== Math.min(datasets.length, 5) - 1 ? (
+                          <span
+                            className="absolute top-4 left-4 -ml-px h-full w-0.5 bg-slate-200"
+                            aria-hidden="true"
+                          />
+                        ) : null}
+                        <div className="relative flex space-x-3">
                           <div>
-                            <p className="text-xs font-semibold text-slate-800">
-                              {activity.title}
-                            </p>
-                            <p className="text-[11px] text-slate-500 mt-0.5">
-                              {activity.size} • <StatusBadge status={activity.status} size="sm" />
-                            </p>
+                            <span className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center ring-4 ring-white">
+                              <UploadCloud className="w-4 h-4 text-indigo-600" />
+                            </span>
                           </div>
-                          <div className="text-right text-[11px] whitespace-nowrap text-slate-400">
-                            {formatDate(activity.timestamp)}
+                          <div className="min-w-0 flex-1 pt-1 flex justify-between space-x-4">
+                            <div>
+                              <p className="text-xs font-semibold text-slate-800">
+                                Dataset uploaded: {dataset.filename}
+                              </p>
+                              <p className="text-[11px] text-slate-500 mt-0.5">
+                                {formatBytes(dataset.size)} • <StatusBadge status={dataset.status || 'uploaded'} size="sm" />
+                              </p>
+                            </div>
+                            <div className="text-right text-[11px] whitespace-nowrap text-slate-400">
+                              {formatDate(dataset.uploadedAt)}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </CardBody>
           </Card>
 

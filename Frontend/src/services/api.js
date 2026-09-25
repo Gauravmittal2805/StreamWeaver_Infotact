@@ -64,7 +64,7 @@ export async function checkBackendHealth() {
   } catch (err) {
     return {
       online: false,
-      error: err.name === 'AbortError' ? 'Health check timed out' : 'Backend server offline (port 5000)'
+      error: err.name === 'AbortError' ? 'Health check timed out' : 'Backend server offline (port 5001)'
     };
   }
 }
