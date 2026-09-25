@@ -7,7 +7,7 @@ import Input from '../components/ui/Input';
 export function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [form, setForm] = useState({
-    apiUrl: 'http://localhost:5000/api',
+    apiUrl: 'http://localhost:5001/api',
     maxFileSizeGb: '10',
     highWaterMarkKb: '64',
     storagePath: './uploads',
@@ -42,7 +42,7 @@ export function SettingsPage() {
               label="Backend Base API URL"
               value={form.apiUrl}
               onChange={(e) => setForm({ ...form, apiUrl: e.target.value })}
-              helperText="Endpoint for StreamWeaver Express backend server (default: http://localhost:5000/api)"
+              helperText="Endpoint for StreamWeaver Express backend server (default: http://localhost:5001/api)"
             />
           </CardBody>
         </Card>

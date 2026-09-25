@@ -145,7 +145,7 @@ export const fileService = {
    * @param {Object} options 
    * @returns {Promise<{ datasetId: string, format: string, filename: string, totalRecordsEstimated: number, previewLimit: number, columns: string[], rows: Object[] }>}
    */
-  async getDatasetPreview(datasetId, { limit = 1000, fallbackMock = true } = {}) {
+  async getDatasetPreview(datasetId, { limit = 1000, fallbackMock = false } = {}) {
     try {
       const res = await fetch(`${API_BASE_URL}/files/${datasetId}/preview?limit=${limit}`);
       if (res.ok) {
@@ -155,7 +155,7 @@ export const fileService = {
         }
       }
     } catch {
-      // Backend not running or error - fallback to simulated preview if allowed
+      // Backend not running or error
     }
 
     if (!fallbackMock) {

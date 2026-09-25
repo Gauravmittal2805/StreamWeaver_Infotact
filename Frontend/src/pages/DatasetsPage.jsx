@@ -27,41 +27,6 @@ import { useDatasets } from '../hooks/useDatasets';
 import { fileService } from '../services/fileService';
 import { formatBytes, formatDate } from '../utils/formatters';
 
-const DEFAULT_DEMO_DATASETS = [
-  {
-    id: 'dataset_cust_5200m',
-    filename: 'customers.csv',
-    format: 'csv',
-    size: 5.2 * 1024 * 1024 * 1024,
-    status: 'uploaded',
-    uploadedAt: '2026-09-23T14:30:00.000Z',
-  },
-  {
-    id: 'dataset_orders_2100m',
-    filename: 'orders.csv',
-    format: 'csv',
-    size: 2.1 * 1024 * 1024 * 1024,
-    status: 'processing',
-    uploadedAt: '2026-09-23T12:15:00.000Z',
-  },
-  {
-    id: 'dataset_users_850m',
-    filename: 'users.json',
-    format: 'json',
-    size: 850 * 1024 * 1024,
-    status: 'completed',
-    uploadedAt: '2026-09-22T18:40:00.000Z',
-  },
-  {
-    id: 'dataset_telemetry_1400m',
-    filename: 'telemetry_stream.json',
-    format: 'json',
-    size: 1.4 * 1024 * 1024 * 1024,
-    status: 'uploaded',
-    uploadedAt: '2026-09-22T10:00:00.000Z',
-  }
-];
-
 export function DatasetsPage() {
   const { datasets, loading, refresh, deleteDataset } = useDatasets();
   const [searchTerm, setSearchTerm] = useState('');
@@ -70,10 +35,8 @@ export function DatasetsPage() {
   const [deletingId, setDeletingId] = useState(null);
   const [readinessModalData, setReadinessModalData] = useState(null);
 
-  // Combine backend datasets with demo list if empty
   const activeDatasets = useMemo(() => {
-    if (datasets && datasets.length > 0) return datasets;
-    return DEFAULT_DEMO_DATASETS;
+    return datasets || [];
   }, [datasets]);
 
   // Summary UX metrics (Step 15)

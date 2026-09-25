@@ -22,7 +22,7 @@ export function ConnectionBadge({ online, checking, onRefresh }) {
             ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
             : 'bg-rose-50 text-rose-700 border-rose-200'
         }`}
-        title={online ? 'Connected to StreamWeaver Backend' : 'Backend Server Offline (port 5000)'}
+        title={online ? 'Connected to StreamWeaver Backend' : 'Backend Server Offline (port 5001)'}
       >
         <span
           className={`w-2 h-2 rounded-full ${
