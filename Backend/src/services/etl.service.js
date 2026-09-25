@@ -1,7 +1,9 @@
 import { pipeline } from "stream/promises";
 import * as fileService from "./file.service.js";
 import * as jobService from "./job.service.js";
+import { getMapping } from "./mapping.service.js";
 import { createParserStream } from "../parsers/parser.factory.js";
+import { createMappingTransform } from "../streams/mapping.transform.js";
 import { createETLTransform } from "../streams/etl.stream.js";
 import { createCounterStream } from "../streams/counter.stream.js";
 import { JOB_STATUS } from "../utils/job.utils.js";
@@ -9,7 +11,7 @@ import { JOB_STATUS } from "../utils/job.utils.js";
 /**
  * Orchestrates the full ETL processing pipeline for a given dataset and job.
  * Pipeline stages:
- * Member 1 File Service (getReadStream) -> Format Detection -> Parser Stream -> ETL Transform -> Counter Stream -> Job Updates
+ * Read Stream -> CSV/JSON Parser -> Mapping Transform -> ETL Transform -> Counter Stream -> Job Updates
  *
  * Preserves backpressure throughout and processes multi-GB files incrementally.
  *
@@ -43,10 +45,17 @@ export async function processDataset(datasetId, jobId, options = {}) {
     // 2. Instantiate format-agnostic parser stream
     const parserStream = createParserStream(format, options.parserOptions);
 
-    // 3. Instantiate core ETL Transform stream (includes Step 10 basic record validation)
+    // 3. Retrieve optional mapping configuration (Step 9 integration)
+    const mappingConfig = options.mapping || getMapping(datasetId);
+    const mappingTransform = mappingConfig ? createMappingTransform(mappingConfig) : null;
+    if (mappingConfig) {
+      console.log(`[ETL] Applied mapping rules for dataset '${datasetId}':`, mappingConfig.mappings);
+    }
+
+    // 4. Instantiate core ETL Transform stream
     const transformStream = createETLTransform(options.transformOptions);
 
-    // 4. Instantiate Metric & Counter stream with throttled job updates
+    // 5. Instantiate Metric & Counter stream with throttled job updates
     const counterStream = createCounterStream({
       progressIntervalMs: options.progressIntervalMs || 500,
       totalExpectedRows: (metadata && metadata.totalRows) || options.totalRows || 0,
@@ -67,13 +76,20 @@ export async function processDataset(datasetId, jobId, options = {}) {
       }
     });
 
-    // 5. Execute pipeline with full streaming backpressure
-    await pipeline(
+    // 6. Build stream pipeline stages
+    const pipelineStages = [
       fileReadStream,
-      parserStream,
-      transformStream,
-      counterStream
-    );
+      parserStream
+    ];
+
+    if (mappingTransform) {
+      pipelineStages.push(mappingTransform);
+    }
+
+    pipelineStages.push(transformStream, counterStream);
+
+    // 7. Execute pipeline with full streaming backpressure
+    await pipeline(...pipelineStages);
 
     // 6. Complete job with final metrics
     const finalMetrics = counterStream.getMetrics();
