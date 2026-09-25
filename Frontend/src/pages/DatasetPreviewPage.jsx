@@ -16,8 +16,8 @@ import {
   BarChart3,
   Rows,
   Columns,
-  HardDrive,
   FileType,
+  Workflow,
 } from 'lucide-react';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -290,6 +290,16 @@ export function DatasetPreviewPage() {
           >
             Export Sample
           </Button>
+          <Link to={`/datasets/${datasetId}/mapping`}>
+            <Button
+              variant="primary"
+              size="sm"
+              leftIcon={Workflow}
+              disabled={isLoading || !previewData}
+            >
+              Map Fields
+            </Button>
+          </Link>
         </div>
       </div>
 
