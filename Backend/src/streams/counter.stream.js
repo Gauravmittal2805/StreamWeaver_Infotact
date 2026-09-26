@@ -26,6 +26,8 @@ export class RecordCounterStream extends Writable {
     this.recordsProcessed = 0;
     this.successfulRows = 0;
     this.failedRows = 0;
+    this.mappedRows = 0;
+    this.transformedRows = 0;
     this.errors = [];
     this.maxErrorSample = options.maxErrorSample || 100;
 
@@ -54,6 +56,8 @@ export class RecordCounterStream extends Writable {
     } else {
       this.successfulRows++;
       this.recordsProcessed++;
+      if (record && record._isMapped) this.mappedRows++;
+      if (record && record._isTransformed) this.transformedRows++;
     }
 
     this._checkProgressThrottle();
@@ -100,6 +104,8 @@ export class RecordCounterStream extends Writable {
       processedRows: this.recordsProcessed,
       successfulRows: this.successfulRows,
       failedRows: this.failedRows,
+      mappedRows: this.mappedRows,
+      transformedRows: this.transformedRows,
       rowsPerSecond,
       progressPercent,
       errors: this.errors,

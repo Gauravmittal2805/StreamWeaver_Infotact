@@ -66,6 +66,7 @@ export function createMappingTransform(mappingConfig) {
           transformed[destinationField] = value;
         }
 
+        transformed._isMapped = true;
         callback(null, transformed);
       } catch (err) {
         // Step 11: Wrap unexpected mapping transform error gracefully
