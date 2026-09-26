@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import fileRoutes from './src/routes/file.routes.js';
 import jobRoutes from './src/routes/job.routes.js';
+import mappingRoutes from './src/routes/mapping.routes.js';
 
 // Load environment variables
 dotenv.config();
@@ -23,9 +24,10 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// File and Job routes
+// File, Job, and Mapping routes
 app.use('/api/files', fileRoutes);
 app.use('/api/jobs', jobRoutes);
+app.use('/api/mappings', mappingRoutes);
 
 // Start server
 if (process.env.NODE_ENV !== 'test') {
