@@ -14,6 +14,7 @@ import {
   Eye,
   HardDrive,
   Activity,
+  Workflow,
 } from 'lucide-react';
 import Card, { CardBody } from '../components/ui/Card';
 import StatCard from '../components/ui/StatCard';
@@ -285,6 +286,18 @@ export function DatasetsPage() {
                               className="bg-indigo-50/60 text-indigo-700 border-indigo-200 hover:bg-indigo-100"
                             >
                               Preview
+                            </Button>
+                          </Link>
+
+                          {/* Map Fields Action */}
+                          <Link to={`/datasets/${ds.id}/mapping`}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              leftIcon={Workflow}
+                              className="text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50"
+                            >
+                              Map
                             </Button>
                           </Link>
 
