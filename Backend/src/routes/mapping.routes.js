@@ -3,10 +3,17 @@ import {
   handleSaveMapping,
   handleGetMapping,
   handleUpdateMapping,
-  handleDeleteMapping
+  handleDeleteMapping,
+  handlePreviewMapping
 } from '../controllers/mapping.controller.js';
 
 const router = express.Router();
+
+// POST /api/mappings/preview - Preview transformation with arbitrary payload
+router.post('/preview', handlePreviewMapping);
+
+// POST /api/mappings/:datasetId/preview - Preview transformation for specific dataset
+router.post('/:datasetId/preview', handlePreviewMapping);
 
 // POST /api/mappings - Create mapping
 router.post('/', handleSaveMapping);

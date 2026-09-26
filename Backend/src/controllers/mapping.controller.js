@@ -4,7 +4,8 @@ import {
   updateMapping,
   deleteMapping,
   validateMapping,
-  getDatasetWithMapping
+  getDatasetWithMapping,
+  previewMappingTransformation
 } from '../services/mapping.service.js';
 
 /**
@@ -27,7 +28,7 @@ export async function handleSaveMapping(req, res) {
 
     res.status(201).json({
       success: true,
-      message: 'Mapping configuration saved successfully',
+      message: 'Mapping & transformation configuration saved successfully',
       mapping
     });
   } catch (error) {
@@ -112,7 +113,7 @@ export async function handleUpdateMapping(req, res) {
 
     res.status(200).json({
       success: true,
-      message: 'Mapping configuration updated successfully',
+      message: 'Mapping & transformation configuration updated successfully',
       mapping
     });
   } catch (error) {
@@ -165,9 +166,41 @@ export async function handleDeleteMapping(req, res) {
   }
 }
 
+/**
+ * Handle POST /api/mappings/preview or /api/mappings/:datasetId/preview
+ * Executes fast sample transformation preview without processing the full dataset.
+ */
+export async function handlePreviewMapping(req, res) {
+  try {
+    const datasetId = req.params.datasetId || req.body.datasetId;
+    const { mappings = [], sampleRows = [], limit = 10, unmappedFieldsMode = 'ignore' } = req.body;
+
+    const preview = await previewMappingTransformation(datasetId, {
+      mappings,
+      sampleRows,
+      limit,
+      unmappedFieldsMode
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Preview generated successfully',
+      preview
+    });
+  } catch (error) {
+    console.error('❌ Preview mapping transformation error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Unable to apply transformation. Please check the selected field and try again.',
+      technicalDetails: error.message
+    });
+  }
+}
+
 export default {
   handleSaveMapping,
   handleGetMapping,
   handleUpdateMapping,
-  handleDeleteMapping
+  handleDeleteMapping,
+  handlePreviewMapping
 };

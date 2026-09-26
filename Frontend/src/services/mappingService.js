@@ -10,8 +10,8 @@ const LOCAL_STORAGE_KEY_PREFIX = 'streamweaver_mapping_';
 const getStorageKey = (datasetId) => `${LOCAL_STORAGE_KEY_PREFIX}${datasetId}`;
 
 /**
- * Mapping service for handling ETL mapping configurations.
- * Includes a fallback to localStorage for offline or backend-less functionality.
+ * Mapping service for handling ETL mapping and transformation configurations.
+ * Includes a fallback to localStorage and client-side processing for offline resilience.
  */
 export const mappingService = {
   /**
@@ -29,7 +29,6 @@ export const mappingService = {
       if (data) {
         return JSON.parse(data);
       }
-      // Return a default empty state if nothing is found
       return {
         datasetId,
         mappings: [],
@@ -41,7 +40,7 @@ export const mappingService = {
   },
 
   /**
-   * Create a new mapping configuration
+   * Create a new mapping & transformation configuration
    * @param {string} datasetId 
    * @param {Object} mapping 
    * @returns {Promise<Object>}
@@ -66,12 +65,15 @@ export const mappingService = {
     } catch (error) {
       console.warn('Mapping API unavailable, using localStorage fallback:', error.message);
       localStorage.setItem(getStorageKey(datasetId), JSON.stringify(dataToSave));
-      return dataToSave;
+      return {
+        success: true,
+        mapping: dataToSave
+      };
     }
   },
 
   /**
-   * Update existing mapping configuration
+   * Update existing mapping & transformation configuration
    * @param {string} datasetId 
    * @param {Object} mapping 
    * @returns {Promise<Object>}
@@ -95,7 +97,6 @@ export const mappingService = {
     } catch (error) {
       console.warn('Mapping API unavailable, using localStorage fallback:', error.message);
       
-      // Preserve createdAt if exists
       const existingDataRaw = localStorage.getItem(getStorageKey(datasetId));
       if (existingDataRaw) {
         const existingData = JSON.parse(existingDataRaw);
@@ -105,7 +106,39 @@ export const mappingService = {
       }
 
       localStorage.setItem(getStorageKey(datasetId), JSON.stringify(dataToSave));
-      return dataToSave;
+      return {
+        success: true,
+        mapping: dataToSave
+      };
+    }
+  },
+
+  /**
+   * Request backend transformation preview on sample rows
+   * @param {string} datasetId 
+   * @param {Object} previewPayload - { mappings, sampleRows, limit }
+   * @returns {Promise<Object>}
+   */
+  async previewTransformation(datasetId, previewPayload = {}) {
+    const url = datasetId
+      ? `${API_BASE_URL}/mappings/${datasetId}/preview`
+      : `${API_BASE_URL}/mappings/preview`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          datasetId,
+          ...previewPayload
+        }),
+      });
+      return await handleApiResponse(response);
+    } catch (error) {
+      console.warn('Mapping preview API failed/unavailable:', error.message);
+      throw error;
     }
   },
 
