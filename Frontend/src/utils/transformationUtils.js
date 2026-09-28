@@ -8,8 +8,62 @@ import {
   Sparkles, 
   PlusCircle, 
   MinusCircle,
-  HelpCircle
+  HelpCircle,
+  Code2,
+  Terminal,
+  FileCode
 } from 'lucide-react';
+
+/**
+ * Predefined selectable example rules for non-technical users
+ */
+export const CUSTOM_JS_EXAMPLES = [
+  {
+    id: 'uppercase',
+    name: 'Uppercase',
+    label: 'Uppercase',
+    description: 'Convert text to all uppercase characters',
+    code: 'return value.toUpperCase();',
+    sampleInput: 'gaurav',
+    sampleOutput: 'GAURAV'
+  },
+  {
+    id: 'trim',
+    name: 'Trim',
+    label: 'Trim',
+    description: 'Remove leading and trailing whitespaces',
+    code: 'return value.trim();',
+    sampleInput: '  gaurav  ',
+    sampleOutput: 'gaurav'
+  },
+  {
+    id: 'prefix',
+    name: 'Add Prefix',
+    label: 'Add Prefix',
+    description: 'Prepend "USER_" before the value',
+    code: 'return "USER_" + value;',
+    sampleInput: '1001',
+    sampleOutput: 'USER_1001'
+  },
+  {
+    id: 'calc',
+    name: 'Number Calculation',
+    label: 'Number Calculation',
+    description: 'Parse value into number and multiply by 2',
+    code: 'return Number(value) * 2;',
+    sampleInput: '50',
+    sampleOutput: '100'
+  },
+  {
+    id: 'safe_lower',
+    name: 'Safe Lowercase',
+    label: 'Safe Lowercase',
+    description: 'Handle nulls safely and lowercase string',
+    code: 'return (value || "").toString().toLowerCase().trim();',
+    sampleInput: '  ADMIN@CORP.COM  ',
+    sampleOutput: 'admin@corp.com'
+  }
+];
 
 /**
  * Transformation definitions for the UI builder
@@ -71,12 +125,24 @@ export const TRANSFORMATIONS = [
     example: { before: '"1049.50"', after: '1049.5' }
   },
   {
+    id: 'custom_js',
+    label: 'Custom JavaScript',
+    shortLabel: 'Custom JS',
+    description: 'Custom rule executed in secure server-side sandbox',
+    icon: Code2,
+    badgeColor: 'bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300 border-purple-200 dark:border-purple-800',
+    category: 'custom',
+    hasConfig: true,
+    defaultCode: 'return value.toUpperCase();',
+    example: { before: 'gaurav', after: 'GAURAV' }
+  },
+  {
     id: 'replace',
     label: 'Replace Text',
     shortLabel: 'Replace',
     description: 'Find matching substring and replace with new value',
     icon: Replace,
-    badgeColor: 'bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300 border-purple-200 dark:border-purple-800',
+    badgeColor: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800',
     category: 'advanced',
     hasConfig: true,
     configFields: [
@@ -189,6 +255,26 @@ export function applyClientTransformation(value, transformation = 'none', config
       return `${prefix}${strVal}`;
     }
 
+    case 'custom_js':
+    case 'custom_javascript':
+    case 'custom':
+    case 'javascript': {
+      const code = config?.code || config?.customCode || config?.script;
+      if (!code) return value;
+      // Note: Full sandboxed execution happens via backend API.
+      // Basic client heuristic for instant typing feedback:
+      try {
+        const trimmed = code.trim();
+        const body = (!trimmed.includes('return') && !trimmed.includes(';')) ? `return (${trimmed});` : trimmed;
+        // eslint-disable-next-line no-new-func
+        const fn = new Function('value', body);
+        const res = fn(value);
+        return res !== undefined ? res : null;
+      } catch {
+        return value;
+      }
+    }
+
     case 'suffix': {
       const suffix = config?.suffix !== undefined ? String(config.suffix) : '';
       return `${strVal}${suffix}`;
@@ -251,6 +337,7 @@ export function transformClientRecord(record, mappings = [], unmappedFieldsMode 
 
 export default {
   TRANSFORMATIONS,
+  CUSTOM_JS_EXAMPLES,
   getTransformationMeta,
   applyClientTransformation,
   transformClientRecord

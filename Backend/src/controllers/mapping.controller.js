@@ -5,7 +5,8 @@ import {
   deleteMapping,
   validateMapping,
   getDatasetWithMapping,
-  previewMappingTransformation
+  previewMappingTransformation,
+  previewCustomRule
 } from '../services/mapping.service.js';
 
 /**
@@ -197,10 +198,43 @@ export async function handlePreviewMapping(req, res) {
   }
 }
 
+/**
+ * Handle POST /api/mappings/custom-js/preview or /api/mappings/custom-js/validate
+ * Securely executes custom JavaScript rule in backend sandbox on sample values.
+ */
+export async function handlePreviewCustomRule(req, res) {
+  try {
+    const { code, sampleValues = [], fieldName = 'value', sampleRows = [] } = req.body || {};
+
+    const preview = await previewCustomRule({
+      code,
+      sampleValues,
+      fieldName,
+      sampleRows
+    });
+
+    res.status(200).json({
+      success: true,
+      valid: preview.valid,
+      preview
+    });
+  } catch (error) {
+    console.error('❌ Custom JS rule preview error:', error.message);
+    res.status(500).json({
+      success: false,
+      valid: false,
+      errorType: 'server_error',
+      message: 'Unable to validate transformation. Try again.',
+      technicalDetails: error.message
+    });
+  }
+}
+
 export default {
   handleSaveMapping,
   handleGetMapping,
   handleUpdateMapping,
   handleDeleteMapping,
-  handlePreviewMapping
+  handlePreviewMapping,
+  handlePreviewCustomRule
 };

@@ -4,10 +4,15 @@ import {
   handleGetMapping,
   handleUpdateMapping,
   handleDeleteMapping,
-  handlePreviewMapping
+  handlePreviewMapping,
+  handlePreviewCustomRule
 } from '../controllers/mapping.controller.js';
 
 const router = express.Router();
+
+// POST /api/mappings/custom-js/preview - Execute and validate custom JS rule in server sandbox
+router.post('/custom-js/preview', handlePreviewCustomRule);
+router.post('/custom-js/validate', handlePreviewCustomRule);
 
 // POST /api/mappings/preview - Preview transformation with arbitrary payload
 router.post('/preview', handlePreviewMapping);

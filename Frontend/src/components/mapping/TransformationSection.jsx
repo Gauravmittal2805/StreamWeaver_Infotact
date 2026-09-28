@@ -267,6 +267,7 @@ export function TransformationSection({
               mapping={mapping}
               index={index}
               sampleValue={firstSampleRow?.[mapping.sourceField]}
+              sampleRows={sampleRows}
               onChangeTransformation={onChangeTransformation}
               onRemoveTransformation={onRemoveTransformation}
               onResetTransformation={onResetTransformation}

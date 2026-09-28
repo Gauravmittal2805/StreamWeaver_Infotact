@@ -34,17 +34,18 @@ import DestinationFieldsPanel from '../components/mapping/DestinationFieldsPanel
 import MappingWorkspace from '../components/mapping/MappingWorkspace';
 import TransformationSection from '../components/mapping/TransformationSection';
 import TransformationPreview from '../components/mapping/TransformationPreview';
+import ProcessingStage from '../components/processing/ProcessingStage';
 import { useMapping } from '../hooks/useMapping';
 import { fileService } from '../services/fileService';
 import { formatBytes, formatDate } from '../utils/formatters';
 
-// ─── 5-Stage SaaS/Enterprise Workflow Step Definitions (Step 12) ───────────────
+// ─── 5-Stage SaaS/Enterprise Workflow Step Definitions (Step 15) ───────────────
 const WORKFLOW_STEPS = [
-  { id: 'dataset', label: '1. Dataset', icon: Database },
-  { id: 'mapping', label: '2. Map Fields', icon: Layers },
-  { id: 'transform', label: '3. Transform', icon: Sparkles },
-  { id: 'preview', label: '4. Preview', icon: Eye },
-  { id: 'process', label: '5. Process', icon: Play },
+  { id: 'dataset', number: '1', label: 'Dataset', icon: Database },
+  { id: 'mapping', number: '2', label: 'Map', icon: Layers },
+  { id: 'transform', number: '3', label: 'Transform', icon: Sparkles },
+  { id: 'preview', number: '4', label: 'Preview', icon: Eye },
+  { id: 'process', number: '5', label: 'Process', icon: Play },
 ];
 
 // ─── Loading Skeleton ─────────────────────────────────────────────────────────
@@ -84,8 +85,8 @@ function MappingSkeleton() {
   );
 }
 
-// ─── Workflow Stepper Component (Step 12) ─────────────────────────────────────
-function WorkflowStepper({ activeTab, onSelectTab, hasMappings }) {
+// ─── Workflow Stepper Component (Step 15) ─────────────────────────────────────
+function WorkflowStepper({ activeTab, onSelectTab, hasMappings, hasTransforms }) {
   return (
     <div className="flex items-center gap-1.5 overflow-x-auto py-1 max-w-full custom-scrollbar">
       {WORKFLOW_STEPS.map((step, index) => {
@@ -94,7 +95,7 @@ function WorkflowStepper({ activeTab, onSelectTab, hasMappings }) {
         const isPast = (
           (step.id === 'dataset') ||
           (step.id === 'mapping' && hasMappings && activeTab !== 'mapping') ||
-          (step.id === 'transform' && (activeTab === 'preview' || activeTab === 'process')) ||
+          (step.id === 'transform' && hasTransforms && activeTab !== 'transform' && (activeTab === 'preview' || activeTab === 'process')) ||
           (step.id === 'preview' && activeTab === 'process')
         );
 
@@ -106,15 +107,22 @@ function WorkflowStepper({ activeTab, onSelectTab, hasMappings }) {
               className={`
                 flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all shrink-0 cursor-pointer
                 ${isActive
-                  ? 'bg-indigo-600 text-white shadow-xs'
+                  ? 'bg-indigo-600 text-white shadow-xs ring-2 ring-indigo-300 dark:ring-indigo-700'
                   : isPast
                     ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
                     : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 border border-slate-200 dark:border-slate-700'}
               `}
             >
               <StepIcon className="w-3.5 h-3.5" />
-              <span>{step.label}</span>
-              {isPast && !isActive && <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400 ml-0.5" />}
+              <span>{step.number} {step.label}</span>
+              
+              {isActive ? (
+                <span className="w-2 h-2 rounded-full bg-white ml-0.5" title="Active step">●</span>
+              ) : isPast ? (
+                <span className="text-emerald-600 dark:text-emerald-400 font-bold ml-0.5">✓</span>
+              ) : (
+                <span className="text-slate-400 font-normal ml-0.5">○</span>
+              )}
             </button>
             {index < WORKFLOW_STEPS.length - 1 && (
               <ChevronRight className={`w-3.5 h-3.5 shrink-0 ${isPast ? 'text-emerald-400' : 'text-slate-300 dark:text-slate-700'}`} />
@@ -312,10 +320,6 @@ export function MappingPage() {
       navigate(`/datasets/${datasetId}/preview`);
       return;
     }
-    if (tabId === 'process') {
-      setShowProcessModal(true);
-      return;
-    }
     setActiveTab(tabId);
   };
 
@@ -379,7 +383,7 @@ export function MappingPage() {
   return (
     <div className="space-y-5 pb-12">
 
-      {/* ── Top Navigation & SaaS Workflow Stepper (Step 12) ─────────────── */}
+      {/* ── Top Navigation & SaaS Workflow Stepper (Step 15) ─────────────── */}
       <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3">
         <Link to={`/datasets/${datasetId}/preview`}>
           <Button variant="ghost" size="sm" leftIcon={ArrowLeft} className="text-slate-600 hover:text-slate-900">
@@ -391,6 +395,7 @@ export function MappingPage() {
           activeTab={activeTab}
           onSelectTab={handleWorkflowTabSelect}
           hasMappings={mappings.length > 0}
+          hasTransforms={transformedCount > 0}
         />
       </div>
 
@@ -463,12 +468,12 @@ export function MappingPage() {
               {saveSuccess ? 'Saved!' : 'Save Pipeline'}
             </Button>
 
-            {/* Step 13: Processing CTA Button */}
+            {/* Step 16: Processing CTA Button */}
             <Button
               variant="outline"
               size="sm"
               rightIcon={ArrowRight}
-              onClick={() => setShowProcessModal(true)}
+              onClick={() => setActiveTab('process')}
               className="border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
             >
               Continue to Processing →
@@ -525,13 +530,13 @@ export function MappingPage() {
         </div>
       )}
 
-      {/* ── View Tab Selector (Mapping / Transformations / Preview) ────── */}
+      {/* ── View Tab Selector (Mapping / Transformations / Preview / Processing) ────── */}
       <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 overflow-x-auto">
           <button
             type="button"
             onClick={() => setActiveTab('mapping')}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shrink-0 ${
               activeTab === 'mapping'
                 ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
                 : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
@@ -545,7 +550,7 @@ export function MappingPage() {
           <button
             type="button"
             onClick={() => setActiveTab('transform')}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shrink-0 ${
               activeTab === 'transform'
                 ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
                 : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
@@ -561,7 +566,7 @@ export function MappingPage() {
           <button
             type="button"
             onClick={() => setActiveTab('preview')}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shrink-0 ${
               activeTab === 'preview'
                 ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
                 : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
@@ -569,6 +574,19 @@ export function MappingPage() {
           >
             <Eye className="w-4 h-4" />
             <span>Live Output Preview</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('process')}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shrink-0 ${
+              activeTab === 'process'
+                ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
+                : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
+            }`}
+          >
+            <Play className="w-4 h-4" />
+            <span>Stage 5: Processing Engine</span>
           </button>
         </div>
 
@@ -639,7 +657,7 @@ export function MappingPage() {
       )}
 
       {/* ── Stage 4: Live Before/After Preview (Steps 7, 8, 9, 15) ───────── */}
-      {(activeTab === 'preview' || activeTab === 'all' || activeTab === 'transform' || activeTab === 'mapping') && (
+      {(activeTab === 'preview' || activeTab === 'all') && (
         <div ref={previewRef} className="pt-2">
           <TransformationPreview
             mappings={mappings}
@@ -652,6 +670,19 @@ export function MappingPage() {
             hasUnsavedChanges={hasUnsavedChanges}
             isMappingSaved={Boolean(lastSavedAt && !hasUnsavedChanges)}
             validationErrors={validationErrors}
+          />
+        </div>
+      )}
+
+      {/* ── Stage 5: Processing Screen (Step 16) ─────────────────────────── */}
+      {activeTab === 'process' && (
+        <div>
+          <ProcessingStage
+            datasetMeta={datasetMeta || { filename: displayName, format: displayFormat }}
+            mappings={mappings}
+            sampleRows={previewData?.rows || sampleRows}
+            onBackToTransform={() => setActiveTab('transform')}
+            onNavigateToJobs={() => navigate('/jobs')}
           />
         </div>
       )}

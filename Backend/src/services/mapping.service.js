@@ -1,6 +1,6 @@
 import { getDatasetInfo } from './dataset.service.js';
 import { getDatasetPreview } from './file.service.js';
-import { transformRecord, applyTransformation, SUPPORTED_TRANSFORMATIONS } from '../utils/transformation.utils.js';
+import { transformRecord, applyTransformation, executeCustomJavaScript, SUPPORTED_TRANSFORMATIONS } from '../utils/transformation.utils.js';
 
 // In-memory mapping configurations store keyed by datasetId
 const mappingsStore = new Map();
@@ -45,7 +45,8 @@ export function validateMapping(payload) {
   const validTransformTypes = new Set([
     'none', 'uppercase', 'lowercase', 'trim', 'number',
     'convert_to_number', 'convert_number', 'replace',
-    'prefix', 'suffix', 'default_value', 'default'
+    'prefix', 'suffix', 'default_value', 'default',
+    'custom_js', 'custom_javascript', 'custom', 'javascript', 'custom_code'
   ]);
 
   mappings.forEach((rule, index) => {
@@ -291,7 +292,7 @@ export async function previewMappingTransformation(datasetId, options = {}) {
       const sourceVal = row[rule.sourceField];
       const transformType = rule.transformation || rule.transformRule || 'none';
       const config = rule.transformConfig || rule.config || {};
-      const targetVal = applyTransformation(sourceVal, transformType, config);
+      const targetVal = applyTransformation(sourceVal, transformType, config, row);
 
       return {
         sourceField: rule.sourceField,
@@ -322,6 +323,73 @@ export async function previewMappingTransformation(datasetId, options = {}) {
   };
 }
 
+/**
+ * Previews and validates a single custom JavaScript rule against sample values.
+ * Executes in isolated backend VM sandbox with timeout protection.
+ *
+ * @param {object} payload - { code, sampleValues, fieldName, sampleRows }
+ * @returns {object} Validation result and before/after comparisons
+ */
+export async function previewCustomRule(payload = {}) {
+  const { code = '', sampleValues = [], fieldName = 'value', sampleRows = [] } = payload;
+
+  let valuesToTest = Array.isArray(sampleValues) && sampleValues.length > 0
+    ? sampleValues
+    : [];
+
+  if (valuesToTest.length === 0 && Array.isArray(sampleRows) && sampleRows.length > 0) {
+    valuesToTest = sampleRows.map(r => (typeof r === 'object' && r !== null ? r[fieldName] : r));
+  }
+
+  // Fallback sample values if none provided
+  if (valuesToTest.length === 0) {
+    valuesToTest = ['gaurav', 'rahul', 'amit', '1049.50', ' user@example.com '];
+  }
+
+  const results = [];
+  let overallValid = true;
+  let firstErrorType = null;
+  let firstErrorMessage = null;
+
+  for (let i = 0; i < valuesToTest.length; i++) {
+    const val = valuesToTest[i];
+    const record = (sampleRows && sampleRows[i]) || { [fieldName]: val };
+    const execRes = executeCustomJavaScript(code, val, record, 1000);
+
+    if (!execRes.success) {
+      overallValid = false;
+      if (!firstErrorType) {
+        firstErrorType = execRes.errorType;
+        firstErrorMessage = execRes.errorMessage;
+      }
+      results.push({
+        index: i,
+        before: val,
+        after: null,
+        valid: false,
+        error: execRes.errorMessage,
+        errorType: execRes.errorType
+      });
+    } else {
+      results.push({
+        index: i,
+        before: val,
+        after: execRes.result,
+        valid: true
+      });
+    }
+  }
+
+  return {
+    valid: overallValid,
+    code,
+    errorType: firstErrorType,
+    errorMessage: firstErrorMessage,
+    comparisons: results,
+    securityNote: 'Custom transformations are executed in a secure server-side sandbox.'
+  };
+}
+
 export default {
   validateMapping,
   sanitizeMappings,
@@ -330,5 +398,6 @@ export default {
   updateMapping,
   deleteMapping,
   getDatasetWithMapping,
-  previewMappingTransformation
+  previewMappingTransformation,
+  previewCustomRule
 };

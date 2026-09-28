@@ -143,6 +143,27 @@ export const mappingService = {
   },
 
   /**
+   * Request backend sandbox preview of a custom JavaScript rule
+   * @param {Object} payload - { code, sampleValues, fieldName, sampleRows }
+   * @returns {Promise<Object>}
+   */
+  async previewCustomRule(payload = {}) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/mappings/custom-js/preview`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+      return await handleApiResponse(response);
+    } catch (error) {
+      console.warn('Custom rule preview API failed/unavailable:', error.message);
+      throw error;
+    }
+  },
+
+  /**
    * Delete a mapping configuration
    * @param {string} datasetId 
    * @returns {Promise<void>}
