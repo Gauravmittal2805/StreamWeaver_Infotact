@@ -3,10 +3,22 @@ import {
   handleSaveMapping,
   handleGetMapping,
   handleUpdateMapping,
-  handleDeleteMapping
+  handleDeleteMapping,
+  handlePreviewMapping,
+  handlePreviewCustomRule
 } from '../controllers/mapping.controller.js';
 
 const router = express.Router();
+
+// POST /api/mappings/custom-js/preview - Execute and validate custom JS rule in server sandbox
+router.post('/custom-js/preview', handlePreviewCustomRule);
+router.post('/custom-js/validate', handlePreviewCustomRule);
+
+// POST /api/mappings/preview - Preview transformation with arbitrary payload
+router.post('/preview', handlePreviewMapping);
+
+// POST /api/mappings/:datasetId/preview - Preview transformation for specific dataset
+router.post('/:datasetId/preview', handlePreviewMapping);
 
 // POST /api/mappings - Create mapping
 router.post('/', handleSaveMapping);

@@ -9,12 +9,12 @@ import {
   handleGetPreview
 } from '../controllers/file.controller.js';
 
-
 import {
   handleSaveMapping,
   handleGetMapping,
   handleUpdateMapping,
-  handleDeleteMapping
+  handleDeleteMapping,
+  handlePreviewMapping
 } from '../controllers/mapping.controller.js';
 
 const router = express.Router();
@@ -28,11 +28,17 @@ router.get('/', handleGetAllDatasets);
 // GET /api/files/:datasetId/check - Check dataset existence and readiness
 router.get('/:datasetId/check', handleCheckDataset);
 
-// GET /api/files/:datasetId/progress - Get upload progress (Step 13 - for Member 3)
+// GET /api/files/:datasetId/progress - Get upload progress
 router.get('/:datasetId/progress', handleGetProgress);
 
-// GET /api/files/:datasetId/preview - Get limited streaming preview (Step 11)
+// GET /api/files/:datasetId/preview - Get limited streaming preview
 router.get('/:datasetId/preview', handleGetPreview);
+
+// POST /api/files/:datasetId/mapping/preview - Preview mapping transformations
+router.post('/:datasetId/mapping/preview', (req, res, next) => {
+  req.body = { ...(req.body || {}), datasetId: req.params.datasetId };
+  return handlePreviewMapping(req, res, next);
+});
 
 // GET /api/files/:datasetId/mapping - Get dataset mapping configuration
 router.get('/:datasetId/mapping', handleGetMapping);
