@@ -1,16 +1,18 @@
 import { Transform } from 'stream';
+import { transformRecord } from '../utils/transformation.utils.js';
 
 /**
- * Creates a streaming Mapping Transform Processor (Step 8 & Step 9).
+ * Creates a streaming Mapping & Transformation Processor.
  * Responsibilities:
  * - Operates in objectMode: true
  * - Transforms records item-by-item incrementally inside the stream without buffering arrays
  * - Maps source fields to destination fields according to mappingConfig
- * - Enforces Step 10 unmapped fields rule: Only mapped fields are passed to destination (unmapped fields ignored)
- * - Enforces Step 11 missing values rule: Null/undefined/missing source values do not crash processor
+ * - Applies configured transformations (Uppercase, Lowercase, Trim, Number, Replace, etc.)
+ * - Enforces unmapped fields rule: Only mapped fields are passed to destination (unmapped fields ignored by default)
+ * - Enforces missing values rule: Null/undefined/missing source values do not crash processor
  * - Preserves stream backpressure
  *
- * @param {object} mappingConfig - { mappings: [{ sourceField, destinationField }], unmappedFieldsMode: 'ignore'|'keep' }
+ * @param {object} mappingConfig - { mappings: [{ sourceField, destinationField, transformation, transformConfig }], unmappedFieldsMode: 'ignore'|'keep' }
  * @returns {Transform}
  */
 export function createMappingTransform(mappingConfig) {
@@ -20,7 +22,6 @@ export function createMappingTransform(mappingConfig) {
   return new Transform({
     objectMode: true,
     transform(record, encoding, callback) {
-      // Step 8/9: Handle malformed or non-object records safely
       if (!record || typeof record !== 'object') {
         return callback(null, record);
       }
@@ -69,13 +70,12 @@ export function createMappingTransform(mappingConfig) {
         transformed._isMapped = true;
         callback(null, transformed);
       } catch (err) {
-        // Step 11: Wrap unexpected mapping transform error gracefully
         const failedRecord = {
           _isMalformed: true,
           _rowNumber: record._rowNumber || null,
           error: {
             type: 'MAPPING_TRANSFORM_ERROR',
-            message: `Mapping failed: ${err.message}`
+            message: `Mapping transformation failed: ${err.message}`
           },
           raw: record
         };

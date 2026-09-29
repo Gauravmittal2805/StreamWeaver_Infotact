@@ -4,7 +4,9 @@ import {
   updateMapping,
   deleteMapping,
   validateMapping,
-  getDatasetWithMapping
+  getDatasetWithMapping,
+  previewMappingTransformation,
+  previewCustomRule
 } from '../services/mapping.service.js';
 
 /**
@@ -27,7 +29,7 @@ export async function handleSaveMapping(req, res) {
 
     res.status(201).json({
       success: true,
-      message: 'Mapping configuration saved successfully',
+      message: 'Mapping & transformation configuration saved successfully',
       mapping
     });
   } catch (error) {
@@ -112,7 +114,7 @@ export async function handleUpdateMapping(req, res) {
 
     res.status(200).json({
       success: true,
-      message: 'Mapping configuration updated successfully',
+      message: 'Mapping & transformation configuration updated successfully',
       mapping
     });
   } catch (error) {
@@ -165,9 +167,74 @@ export async function handleDeleteMapping(req, res) {
   }
 }
 
+/**
+ * Handle POST /api/mappings/preview or /api/mappings/:datasetId/preview
+ * Executes fast sample transformation preview without processing the full dataset.
+ */
+export async function handlePreviewMapping(req, res) {
+  try {
+    const datasetId = req.params.datasetId || req.body.datasetId;
+    const { mappings = [], sampleRows = [], limit = 10, unmappedFieldsMode = 'ignore' } = req.body;
+
+    const preview = await previewMappingTransformation(datasetId, {
+      mappings,
+      sampleRows,
+      limit,
+      unmappedFieldsMode
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Preview generated successfully',
+      preview
+    });
+  } catch (error) {
+    console.error('❌ Preview mapping transformation error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Unable to apply transformation. Please check the selected field and try again.',
+      technicalDetails: error.message
+    });
+  }
+}
+
+/**
+ * Handle POST /api/mappings/custom-js/preview or /api/mappings/custom-js/validate
+ * Securely executes custom JavaScript rule in backend sandbox on sample values.
+ */
+export async function handlePreviewCustomRule(req, res) {
+  try {
+    const { code, sampleValues = [], fieldName = 'value', sampleRows = [] } = req.body || {};
+
+    const preview = await previewCustomRule({
+      code,
+      sampleValues,
+      fieldName,
+      sampleRows
+    });
+
+    res.status(200).json({
+      success: true,
+      valid: preview.valid,
+      preview
+    });
+  } catch (error) {
+    console.error('❌ Custom JS rule preview error:', error.message);
+    res.status(500).json({
+      success: false,
+      valid: false,
+      errorType: 'server_error',
+      message: 'Unable to validate transformation. Try again.',
+      technicalDetails: error.message
+    });
+  }
+}
+
 export default {
   handleSaveMapping,
   handleGetMapping,
   handleUpdateMapping,
-  handleDeleteMapping
+  handleDeleteMapping,
+  handlePreviewMapping,
+  handlePreviewCustomRule
 };
