@@ -31,7 +31,43 @@ export function createMappingTransform(mappingConfig) {
       }
 
       try {
-        const transformed = transformRecord(record, mappings, unmappedFieldsMode);
+        const transformed = {};
+
+        // Preserve internal stream metadata properties starting with '_'
+        for (const key of Object.keys(record)) {
+          if (key.startsWith('_')) {
+            transformed[key] = record[key];
+          }
+        }
+
+        // If unmappedFieldsMode is 'keep', copy all original fields first
+        if (unmappedFieldsMode === 'keep') {
+          for (const [key, val] of Object.entries(record)) {
+            if (!key.startsWith('_')) {
+              transformed[key] = val;
+            }
+          }
+        }
+
+        // Apply mapping rules record by record
+        for (const rule of mappings) {
+          const { sourceField, destinationField } = rule;
+          if (!sourceField || !destinationField) continue;
+
+          // Step 11: Handle missing source values without crashing
+          let value = record[sourceField];
+
+          if (value === undefined || value === null) {
+            value = null;
+          } else if (typeof value === 'string') {
+            const trimmed = value.trim();
+            value = trimmed === '' ? null : trimmed;
+          }
+
+          transformed[destinationField] = value;
+        }
+
+        transformed._isMapped = true;
         callback(null, transformed);
       } catch (err) {
         const failedRecord = {
