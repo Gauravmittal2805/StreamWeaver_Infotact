@@ -6,7 +6,7 @@ import { API_BASE_URL, handleApiResponse } from './api';
 export const jobService = {
   /**
    * Create an ETL job
-   * @param {Object} payload 
+   * @param {Object} payload - { datasetId, autoStart? }
    * @returns {Promise<Object>}
    */
   async createJob(payload) {
@@ -22,7 +22,7 @@ export const jobService = {
 
   /**
    * Get job status and execution details
-   * @param {string} jobId 
+   * @param {string} jobId
    * @returns {Promise<Object>}
    */
   async getJob(jobId) {
@@ -32,11 +32,23 @@ export const jobService = {
 
   /**
    * Start a created job
-   * @param {string} jobId 
+   * @param {string} jobId
    * @returns {Promise<Object>}
    */
   async startJob(jobId) {
     const res = await fetch(`${API_BASE_URL}/jobs/${jobId}/start`, {
+      method: 'POST',
+    });
+    return await handleApiResponse(res);
+  },
+
+  /**
+   * Cancel a running or queued job
+   * @param {string} jobId
+   * @returns {Promise<Object>}
+   */
+  async cancelJob(jobId) {
+    const res = await fetch(`${API_BASE_URL}/jobs/${jobId}/cancel`, {
       method: 'POST',
     });
     return await handleApiResponse(res);

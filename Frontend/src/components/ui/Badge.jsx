@@ -15,6 +15,7 @@ export function Badge({
     success: 'bg-emerald-50 text-emerald-700 border-emerald-200/80',
     warning: 'bg-amber-50 text-amber-700 border-amber-200/80',
     error: 'bg-rose-50 text-rose-700 border-rose-200/80',
+    danger: 'bg-rose-50 text-rose-700 border-rose-200/80',
     info: 'bg-sky-50 text-sky-700 border-sky-200/80',
     purple: 'bg-indigo-50 text-indigo-700 border-indigo-200/80',
   };
@@ -24,6 +25,7 @@ export function Badge({
     success: 'bg-emerald-500',
     warning: 'bg-amber-500',
     error: 'bg-rose-500',
+    danger: 'bg-rose-500',
     info: 'bg-sky-500',
     purple: 'bg-indigo-500',
   };
