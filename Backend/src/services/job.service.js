@@ -1,5 +1,6 @@
 import { getDB } from "../config/db.js";
 import { JOB_STATUS, calculateProgressPercent } from "../utils/job.utils.js";
+import { broadcastJobProgress } from "./websocket.service.js";
 
 const COLLECTION = "jobs";
 const inMemoryJobs = new Map();
@@ -28,7 +29,7 @@ export async function createJob(datasetId) {
     const db = getDB();
     await db.collection(COLLECTION).insertOne(job);
   } catch (err) {
-    // Database might not be connected in isolated test mode
+    // Database might be offline in test mode
   }
 
   return job;
@@ -47,8 +48,24 @@ export async function getJob(jobId) {
   return memJob ? formatJobResponse(memJob) : null;
 }
 
+export async function getAllJobs(datasetId = null) {
+  try {
+    const db = getDB();
+    const query = datasetId ? { datasetId } : {};
+    const jobs = await db.collection(COLLECTION).find(query).toArray();
+    if (jobs && jobs.length > 0) return jobs.map(formatJobResponse);
+  } catch (err) {
+    // Fall back to memory
+  }
+
+  let list = Array.from(inMemoryJobs.values());
+  if (datasetId) {
+    list = list.filter(j => j.datasetId === datasetId);
+  }
+  return list.map(formatJobResponse);
+}
+
 export async function updateJob(jobId, updates) {
-  // Cap errors array if provided to keep document size bounded
   const cleanUpdates = { ...updates };
   if (cleanUpdates.errors && Array.isArray(cleanUpdates.errors)) {
     cleanUpdates.errors = cleanUpdates.errors.slice(0, 100);
@@ -57,7 +74,6 @@ export async function updateJob(jobId, updates) {
   const existing = inMemoryJobs.get(jobId) || {};
   const merged = { ...existing, ...cleanUpdates };
 
-  // Calculate progress percent automatically if processedRows and totalRows exist
   merged.progressPercent = calculateProgressPercent(
     merged.processedRows || 0,
     merged.totalRows || 0
@@ -65,17 +81,26 @@ export async function updateJob(jobId, updates) {
 
   inMemoryJobs.set(jobId, merged);
 
+  const formatted = formatJobResponse(merged);
+
+  // Broadcast live update over WebSocket
+  try {
+    broadcastJobProgress(jobId, formatted);
+  } catch (err) {
+    console.error(`[JobService] Failed to broadcast WS update for job ${jobId}:`, err.message);
+  }
+
   try {
     const db = getDB();
     await db.collection(COLLECTION).updateOne(
       { jobId },
       { $set: merged }
     );
-    return formatJobResponse(merged);
   } catch (err) {
-    // Return in-memory copy if DB is unavailable
-    return formatJobResponse(merged);
+    // Database update fallback
   }
+
+  return formatted;
 }
 
 function formatJobResponse(job) {
@@ -106,5 +131,6 @@ function formatJobResponse(job) {
 export default {
   createJob,
   getJob,
+  getAllJobs,
   updateJob
 };

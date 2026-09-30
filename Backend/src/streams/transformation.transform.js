@@ -1,22 +1,19 @@
 import { Transform } from 'stream';
-import { normalizeTransformationType } from '../services/transformation.service.js';
+import { applyTransformation } from '../utils/transformation.utils.js';
+import { ERROR_CODES } from '../utils/errors.js';
 
-/**
- * Custom Error class for Transformation failures
- */
 export class TransformationError extends Error {
-  constructor(message, field, record) {
+  constructor(message, field, record, code = ERROR_CODES.TRANSFORMATION_ERROR) {
     super(message);
     this.name = 'TransformationError';
     this.field = field;
     this.record = record;
+    this.code = code;
   }
 }
 
 /**
- * Step 7 — Transformation Processor
- * Applies transformation rules to a single record object.
- * Process one record at a time. Do not accumulate dataset in memory.
+ * Applies standalone transformation rules to a single record object.
  *
  * @param {object} record - Single data record
  * @param {Array<object>} rules - List of transformation rules [{ field, transformation, config, order }]
@@ -31,10 +28,7 @@ export function applyRecordTransformations(record, rules) {
     return record;
   }
 
-  // Clone record to avoid direct mutation of input reference while preserving _ internal keys
   const output = { ...record };
-
-  // Sort rules by order if present
   const sortedRules = [...rules].sort((a, b) => (a.order || 0) - (b.order || 0));
 
   for (const rule of sortedRules) {
@@ -43,69 +37,24 @@ export function applyRecordTransformations(record, rules) {
       continue;
     }
 
-    const type = normalizeTransformationType(rule.transformation || rule.transformationType || rule.type);
-    let val = output[field];
+    const type = rule.transformation || rule.transformationType || rule.type || 'none';
+    const config = rule.config || rule.transformConfig || {};
+    const val = output[field];
 
     try {
-      switch (type) {
-        case 'uppercase':
-          if (typeof val === 'string') {
-            output[field] = val.toUpperCase();
-          } else if (val !== null && val !== undefined) {
-            output[field] = String(val).toUpperCase();
-          }
-          break;
-
-        case 'lowercase':
-          if (typeof val === 'string') {
-            output[field] = val.toLowerCase();
-          } else if (val !== null && val !== undefined) {
-            output[field] = String(val).toLowerCase();
-          }
-          break;
-
-        case 'trim':
-          if (typeof val === 'string') {
-            output[field] = val.trim();
-          }
-          break;
-
-        case 'number':
-          if (val === null || val === undefined || val === '') {
-            output[field] = null;
-          } else if (typeof val === 'number') {
-            if (!Number.isFinite(val)) {
-              throw new TransformationError(`Invalid numeric value '${val}' for field '${field}'`, field, record);
-            }
-          } else {
-            const strVal = String(val).trim();
-            const num = Number(strVal);
-            if (Number.isNaN(num) || strVal === '') {
-              throw new TransformationError(`Cannot convert non-numeric value '${val}' to number for field '${field}'`, field, record);
-            }
-            output[field] = num;
-          }
-          break;
-
-        case 'remove_empty':
-          if (
-            val === null ||
-            val === undefined ||
-            val === '' ||
-            (typeof val === 'string' && val.trim() === '')
-          ) {
-            delete output[field];
-          }
-          break;
-
-        default:
-          break;
+      const transformedVal = applyTransformation(val, type, config, record);
+      if (transformedVal === undefined) {
+        delete output[field];
+      } else {
+        output[field] = transformedVal;
       }
     } catch (err) {
-      if (err instanceof TransformationError) {
-        throw err;
-      }
-      throw new TransformationError(`Transformation '${type}' failed on field '${field}': ${err.message}`, field, record);
+      throw new TransformationError(
+        `Transformation '${type}' failed on field '${field}': ${err.message}`,
+        field,
+        record,
+        err.errorType || ERROR_CODES.TRANSFORMATION_ERROR
+      );
     }
   }
 
@@ -113,12 +62,7 @@ export function applyRecordTransformations(record, rules) {
 }
 
 /**
- * Step 8, 9 & 10 — Streaming Transformation Transform Stream
- * Responsibilities:
- * - Operates in objectMode: true
- * - Processes records item-by-item incrementally
- * - Preserves backpressure and flat memory profile
- * - Step 10 Error Handling: Bad record marked _isMalformed and stream continues
+ * Streaming Transformation Transform Stream
  *
  * @param {object} transformationConfig - { transformations: [{ field, transformation, config, order }] }
  * @returns {Transform}
@@ -131,7 +75,6 @@ export function createTransformationTransform(transformationConfig) {
   return new Transform({
     objectMode: true,
     transform(record, encoding, callback) {
-      // Pass malformed or non-object records downstream directly
       if (!record || typeof record !== 'object') {
         return callback(null, record);
       }
@@ -147,13 +90,12 @@ export function createTransformationTransform(transformationConfig) {
         }
         callback(null, transformedRecord);
       } catch (err) {
-        // Step 10: Transformation Error Handling — Catch record error without crashing pipeline
         const failedRecord = {
           _isMalformed: true,
           _rowNumber: record._rowNumber || null,
           field: err.field || null,
           error: {
-            type: 'TRANSFORMATION_ERROR',
+            type: err.code || ERROR_CODES.TRANSFORMATION_ERROR,
             message: err.message
           },
           raw: record

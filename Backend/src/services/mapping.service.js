@@ -1,6 +1,7 @@
 import { getDatasetInfo } from './dataset.service.js';
 import { getDatasetPreview } from './file.service.js';
 import { transformRecord, applyTransformation, executeCustomJavaScript, SUPPORTED_TRANSFORMATIONS } from '../utils/transformation.utils.js';
+import { ERROR_CODES, AppError } from '../utils/errors.js';
 
 // In-memory mapping configurations store keyed by datasetId
 const mappingsStore = new Map();
@@ -44,8 +45,8 @@ export function validateMapping(payload) {
   const seenDestinationFields = new Set();
   const validTransformTypes = new Set([
     'none', 'uppercase', 'lowercase', 'trim', 'number',
-    'convert_to_number', 'convert_number', 'replace',
-    'prefix', 'suffix', 'default_value', 'default',
+    'convert_to_number', 'convert_number', 'numeric', 'replace',
+    'prefix', 'suffix', 'default_value', 'default', 'remove_empty',
     'custom_js', 'custom_javascript', 'custom', 'javascript', 'custom_code'
   ]);
 
@@ -116,7 +117,7 @@ export function sanitizeMappings(mappings = []) {
       sourceField: String(rule.sourceField || '').trim(),
       destinationField: String(rule.destinationField || '').trim(),
       transformation: String(transformation).trim(),
-      transformRule: String(transformation).trim(), // backwards compatibility
+      transformRule: String(transformation).trim(),
       transformConfig: { ...config }
     };
   });
@@ -131,10 +132,7 @@ export function sanitizeMappings(mappings = []) {
 export function saveMapping(payload) {
   const validation = validateMapping(payload);
   if (!validation.valid) {
-    const error = new Error(`Invalid mapping configuration: ${validation.errors.join('; ')}`);
-    error.status = 400;
-    error.details = validation.errors;
-    throw error;
+    throw new AppError(ERROR_CODES.INVALID_MAPPING, `Invalid mapping configuration: ${validation.errors.join('; ')}`, validation.errors, 400);
   }
 
   const { datasetId, mappings, destinationFields = [], unmappedFieldsMode = 'ignore', name } = payload;
@@ -192,10 +190,7 @@ export function updateMapping(datasetId, payload) {
 
   const validation = validateMapping(fullPayload);
   if (!validation.valid) {
-    const error = new Error(`Invalid mapping update: ${validation.errors.join('; ')}`);
-    error.status = 400;
-    error.details = validation.errors;
-    throw error;
+    throw new AppError(ERROR_CODES.INVALID_MAPPING, `Invalid mapping update: ${validation.errors.join('; ')}`, validation.errors, 400);
   }
 
   const now = new Date().toISOString();
@@ -292,14 +287,23 @@ export async function previewMappingTransformation(datasetId, options = {}) {
       const sourceVal = row[rule.sourceField];
       const transformType = rule.transformation || rule.transformRule || 'none';
       const config = rule.transformConfig || rule.config || {};
-      const targetVal = applyTransformation(sourceVal, transformType, config, row);
+
+      let targetVal = null;
+      let error = null;
+
+      try {
+        targetVal = applyTransformation(sourceVal, transformType, config, row);
+      } catch (err) {
+        error = err.message;
+      }
 
       return {
         sourceField: rule.sourceField,
         destinationField: rule.destinationField,
         transformation: transformType,
         before: sourceVal !== undefined ? sourceVal : null,
-        after: targetVal !== undefined ? targetVal : null
+        after: targetVal !== undefined ? targetVal : null,
+        error
       };
     });
 
@@ -359,7 +363,7 @@ export async function previewCustomRule(payload = {}) {
     if (!execRes.success) {
       overallValid = false;
       if (!firstErrorType) {
-        firstErrorType = execRes.errorType;
+        firstErrorType = execRes.errorType || ERROR_CODES.TRANSFORMATION_ERROR;
         firstErrorMessage = execRes.errorMessage;
       }
       results.push({
@@ -368,7 +372,7 @@ export async function previewCustomRule(payload = {}) {
         after: null,
         valid: false,
         error: execRes.errorMessage,
-        errorType: execRes.errorType
+        errorType: execRes.errorType || ERROR_CODES.TRANSFORMATION_ERROR
       });
     } else {
       results.push({
