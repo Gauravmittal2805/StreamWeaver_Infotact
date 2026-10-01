@@ -7,6 +7,8 @@ import fileRoutes from './src/routes/file.routes.js';
 import jobRoutes from './src/routes/job.routes.js';
 import mappingRoutes from './src/routes/mapping.routes.js';
 import transformationRoutes from './src/routes/transformation.routes.js';
+import { initWebSocketServer } from './src/services/websocket.service.js';
+import { sendErrorResponse } from './src/utils/errors.js';
 import { setBroadcast } from './src/services/etl.service.js';
 
 // Load environment variables
@@ -149,4 +151,5 @@ if (process.env.NODE_ENV !== 'test') {
   });
 }
 
+export { app, server };
 export default app;

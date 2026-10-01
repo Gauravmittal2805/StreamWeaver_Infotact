@@ -3,14 +3,16 @@ import { pipeline } from 'stream/promises';
 import { getReadStream } from './file.service.js';
 import { createParserStream } from '../parsers/parser.factory.js';
 import { getMapping } from './mapping.service.js';
-import { createMappingTransform } from '../streams/mapping.transform.js';
 import { getTransformation } from './transformation.service.js';
+import { transformRecord } from '../utils/transformation.utils.js';
 import { applyRecordTransformations } from '../streams/transformation.transform.js';
+import { ERROR_CODES } from '../utils/errors.js';
 
 /**
- * Step 12 — Transformation Preview Support
- * Processes up to `limit` (default 100) records from a dataset or provided sample records,
+ * Step 4 & Step 12 — Transformation Preview Support
+ * Processes up to `limit` records from a dataset or provided sample records,
  * returning Before -> Mapped -> Transformed previews for UI consumption.
+ * Memory safe: aborts stream early to avoid loading complete dataset into memory.
  *
  * @param {object} options
  * @param {string} [options.datasetId] - Dataset ID to stream sample from
@@ -29,7 +31,7 @@ export async function previewTransformations(options = {}) {
   
   // Resolve transformation rules
   const transformationConfig = customTransformation || (datasetId ? getTransformation(datasetId) : null);
-  const rules = (transformationConfig && Array.isArray(transformationConfig.transformations))
+  const standaloneRules = (transformationConfig && Array.isArray(transformationConfig.transformations))
     ? transformationConfig.transformations
     : [];
 
@@ -47,48 +49,26 @@ export async function previewTransformations(options = {}) {
 
     // Apply mapping if mappingConfig is present
     if (mappingConfig && Array.isArray(mappingConfig.mappings) && mappingConfig.mappings.length > 0) {
-      const unmappedFieldsMode = mappingConfig.unmappedFieldsMode || 'ignore';
-      const mappedTemp = {};
-
-      // Preserve metadata starting with '_'
-      for (const key of Object.keys(rawRecord)) {
-        if (key.startsWith('_')) {
-          mappedTemp[key] = rawRecord[key];
-        }
-      }
-
-      if (unmappedFieldsMode === 'keep') {
-        for (const [k, v] of Object.entries(rawRecord)) {
-          if (!k.startsWith('_')) {
-            mappedTemp[k] = v;
-          }
-        }
-      }
-
-      for (const rule of mappingConfig.mappings) {
-        const { sourceField, destinationField } = rule;
-        if (sourceField && destinationField) {
-          let val = rawRecord[sourceField];
-          if (val === undefined || val === null) {
-            val = null;
-          } else if (typeof val === 'string') {
-            const trimmed = val.trim();
-            val = trimmed === '' ? null : trimmed;
-          }
-          mappedTemp[destinationField] = val;
-        }
-      }
-
-      mappedRecord = mappedTemp;
+      mappedRecord = transformRecord(rawRecord, mappingConfig.mappings, mappingConfig.unmappedFieldsMode || 'ignore');
     }
 
-    // Apply transformation
+    if (mappedRecord && mappedRecord._isMalformed) {
+      return {
+        original: rawRecord,
+        mapped: rawRecord,
+        transformed: rawRecord,
+        isMalformed: true,
+        error: mappedRecord.error
+      };
+    }
+
+    // Apply standalone transformations if rules are present
     try {
-      const transformedRecord = applyRecordTransformations(mappedRecord, rules);
+      const finalTransformed = applyRecordTransformations(mappedRecord, standaloneRules);
       return {
         original: rawRecord,
         mapped: mappedRecord,
-        transformed: transformedRecord
+        transformed: finalTransformed
       };
     } catch (err) {
       return {
@@ -97,7 +77,7 @@ export async function previewTransformations(options = {}) {
         transformed: mappedRecord,
         isMalformed: true,
         error: {
-          type: 'TRANSFORMATION_ERROR',
+          type: err.code || ERROR_CODES.TRANSFORMATION_ERROR,
           message: err.message,
           field: err.field || null
         }
@@ -155,7 +135,6 @@ export async function previewTransformations(options = {}) {
   try {
     await pipeline(fileReadStream, parserStream, previewCollector);
   } catch (err) {
-    // Abort errors from stream destroy are expected when hitting limit
     if (err.code !== 'ERR_STREAM_PREMATURE_CLOSE' && !fileReadStream.destroyed) {
       console.warn('[Transformation Preview] Stream completed or ended early:', err.message);
     }

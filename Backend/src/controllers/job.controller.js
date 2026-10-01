@@ -1,22 +1,25 @@
 import * as jobService from "../services/job.service.js";
 import * as etlService from "../services/etl.service.js";
+import { ERROR_CODES, sendErrorResponse } from "../utils/errors.js";
 
 export async function createJob(req, res) {
   try {
-    const { datasetId, autoStart = true } = req.body;
+    const { datasetId, autoStart = true, batchSize } = req.body || {};
     if (!datasetId) {
       return res.status(400).json({
         success: false,
-        message: "datasetId is required"
+        error: {
+          code: ERROR_CODES.INVALID_DATA,
+          message: "datasetId is required"
+        }
       });
     }
 
     const job = await jobService.createJob(datasetId);
 
-    // If autoStart is enabled, dispatch processing in the background
     if (autoStart) {
       setImmediate(() => {
-        etlService.processDataset(datasetId, job.jobId).catch((err) => {
+        etlService.processDataset(datasetId, job.jobId, { batchSize }).catch((err) => {
           console.error(`Background job processing error for ${job.jobId}:`, err);
         });
       });
@@ -24,14 +27,12 @@ export async function createJob(req, res) {
 
     res.status(201).json({
       success: true,
+      jobId: job.jobId,
       job
     });
   } catch (error) {
     console.error("Create job error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to create job"
-    });
+    return sendErrorResponse(res, error, 500);
   }
 }
 
@@ -42,7 +43,10 @@ export async function getJob(req, res) {
     if (!job) {
       return res.status(404).json({
         success: false,
-        message: "Job not found"
+        error: {
+          code: ERROR_CODES.PROCESSING_ERROR,
+          message: `Job '${jobId}' not found`
+        }
       });
     }
     res.json({
@@ -51,26 +55,42 @@ export async function getJob(req, res) {
     });
   } catch (error) {
     console.error("Get job error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch job"
+    return sendErrorResponse(res, error, 500);
+  }
+}
+
+export async function getAllJobs(req, res) {
+  try {
+    const { datasetId } = req.query;
+    const jobs = await jobService.getAllJobs(datasetId);
+    res.json({
+      success: true,
+      count: jobs.length,
+      jobs
     });
+  } catch (error) {
+    console.error("Get all jobs error:", error);
+    return sendErrorResponse(res, error, 500);
   }
 }
 
 export async function startJob(req, res) {
   try {
     const { jobId } = req.params;
+    const { batchSize } = req.body || {};
+
     const job = await jobService.getJob(jobId);
     if (!job) {
       return res.status(404).json({
         success: false,
-        message: "Job not found"
+        error: {
+          code: ERROR_CODES.PROCESSING_ERROR,
+          message: `Job '${jobId}' not found`
+        }
       });
     }
 
-    // Trigger processing
-    etlService.processDataset(job.datasetId, job.jobId).catch((err) => {
+    etlService.processDataset(job.datasetId, job.jobId, { batchSize }).catch((err) => {
       console.error(`Start job error for ${jobId}:`, err);
     });
 
@@ -81,10 +101,7 @@ export async function startJob(req, res) {
     });
   } catch (error) {
     console.error("Start job error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to start job"
-    });
+    return sendErrorResponse(res, error, 500);
   }
 }
 
@@ -115,6 +132,6 @@ export async function cancelJob(req, res) {
 export default {
   createJob,
   getJob,
-  startJob,
-  cancelJob
+  getAllJobs,
+  startJob
 };

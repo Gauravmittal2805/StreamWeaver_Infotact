@@ -1,9 +1,10 @@
 import vm from 'node:vm';
+import { ERROR_CODES } from './errors.js';
 
 /**
  * Transformation utility functions for StreamWeaver ETL.
  * Supported transformations:
- * - none: No transformation
+ * - none: Direct pass-through
  * - uppercase: Convert string to UPPERCASE
  * - lowercase: Convert string to lowercase
  * - trim: Remove leading and trailing whitespace
@@ -12,6 +13,7 @@ import vm from 'node:vm';
  * - prefix: Prepend a prefix string
  * - suffix: Append a suffix string
  * - default_value: Provide fallback value if source is empty/null
+ * - remove_empty: Omit field if value is empty/null
  * - custom_js: Run custom JavaScript expression/function in secure server-side sandbox
  */
 
@@ -26,6 +28,7 @@ export const SUPPORTED_TRANSFORMATIONS = [
   { id: 'prefix', label: 'Add Prefix', description: 'Prepend text before the value', hasConfig: true },
   { id: 'suffix', label: 'Add Suffix', description: 'Append text after the value', hasConfig: true },
   { id: 'default_value', label: 'Default Value', description: 'Fallback when value is empty or null', hasConfig: true },
+  { id: 'remove_empty', label: 'Remove Empty', description: 'Remove field if empty or null', hasConfig: false }
 ];
 
 /**
@@ -44,9 +47,12 @@ export function executeCustomJavaScript(code, value, record = {}, timeoutMs = 10
 
   const trimmedCode = code.trim();
 
-  // If user supplied code without 'return' and it's a single expression (e.g. `value.toUpperCase()`), add return
+  // Determine if code is a statement or multi-line block
+  const hasStatementKeywords = /\b(return|var|let|const|if|else|for|while|do|switch|try|catch|throw|function)\b/.test(trimmedCode);
+  const hasBlockSyntax = trimmedCode.includes(';') || trimmedCode.startsWith('{');
+
   let executableBody = trimmedCode;
-  if (!trimmedCode.includes('return') && !trimmedCode.includes(';') && !trimmedCode.startsWith('{')) {
+  if (!hasStatementKeywords && !hasBlockSyntax) {
     executableBody = `return (${trimmedCode});`;
   }
 
@@ -105,17 +111,17 @@ export function executeCustomJavaScript(code, value, record = {}, timeoutMs = 10
       result: result === undefined ? null : result
     };
   } catch (err) {
-    let errorType = 'execution_error';
+    let errorType = ERROR_CODES.TRANSFORMATION_ERROR;
     let errorMessage = 'The transformation could not be executed.';
 
-    if (err.name === 'SyntaxError' || err.message?.includes('Unexpected') || err.message?.includes('Syntax')) {
-      errorType = 'syntax_error';
-      errorMessage = 'Invalid JavaScript rule syntax.';
-    } else if (err.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT' || err.message?.includes('timed out')) {
-      errorType = 'timeout_error';
-      errorMessage = 'The transformation took too long to execute (timeout).';
+    if (err.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT' || err.message?.includes('timed out') || err.message?.includes('execution timed out')) {
+      errorType = ERROR_CODES.SANDBOX_TIMEOUT;
+      errorMessage = `Sandbox execution timed out (${timeoutMs}ms limit exceeded).`;
+    } else if (err.name === 'SyntaxError' || err.message?.includes('Unexpected') || err.message?.includes('Syntax')) {
+      errorType = ERROR_CODES.INVALID_TRANSFORMATION;
+      errorMessage = `Syntax Error in custom JS: ${err.message}`;
     } else if (err instanceof TypeError || err instanceof ReferenceError || err instanceof RangeError) {
-      errorType = 'runtime_error';
+      errorType = ERROR_CODES.TRANSFORMATION_ERROR;
       errorMessage = `Runtime error: ${err.message}`;
     }
 
@@ -144,11 +150,16 @@ export function applyTransformation(value, transformation = 'none', config = {},
     if ((normTransform === 'default_value' || normTransform === 'default') && config?.defaultValue !== undefined) {
       return config.defaultValue;
     }
-    if (normTransform === 'custom_js' || normTransform === 'custom_javascript' || normTransform === 'custom' || normTransform === 'javascript') {
+    if (normTransform === 'custom_js' || normTransform === 'custom_javascript' || normTransform === 'custom' || normTransform === 'javascript' || normTransform === 'custom_code') {
       const code = config?.code || config?.customCode || config?.script || '';
       if (code) {
         const execRes = executeCustomJavaScript(code, value, record);
-        return execRes.success ? execRes.result : null;
+        if (!execRes.success) {
+          const err = new Error(execRes.errorMessage);
+          err.errorType = execRes.errorType;
+          throw err;
+        }
+        return execRes.result;
       }
     }
     return null;
@@ -168,11 +179,17 @@ export function applyTransformation(value, transformation = 'none', config = {},
 
     case 'number':
     case 'convert_to_number':
-    case 'convert_number': {
+    case 'convert_number':
+    case 'numeric': {
       const trimmed = strVal.trim();
       if (trimmed === '') return null;
       const num = Number(trimmed);
-      return Number.isNaN(num) ? null : num;
+      if (Number.isNaN(num)) {
+        const err = new Error(`Cannot convert '${strVal}' to number`);
+        err.errorType = ERROR_CODES.TRANSFORMATION_ERROR;
+        throw err;
+      }
+      return num;
     }
 
     case 'custom_js':
@@ -184,7 +201,9 @@ export function applyTransformation(value, transformation = 'none', config = {},
       if (!code) return value;
       const execRes = executeCustomJavaScript(code, value, record);
       if (!execRes.success) {
-        return null;
+        const err = new Error(execRes.errorMessage);
+        err.errorType = execRes.errorType;
+        throw err;
       }
       return execRes.result;
     }
@@ -214,6 +233,14 @@ export function applyTransformation(value, transformation = 'none', config = {},
       return strVal;
     }
 
+    case 'remove_empty':
+    case 'remove_empty_values': {
+      if (strVal.trim() === '') {
+        return undefined;
+      }
+      return value;
+    }
+
     case 'none':
     default:
       return value;
@@ -224,46 +251,63 @@ export function applyTransformation(value, transformation = 'none', config = {},
  * Transform a single record object according to mapping and transformation rules.
  *
  * @param {object} record - Source record
- * @param {Array} mappings - Mappings array
+ * @param {Array} mappings - Mappings array [{ sourceField, destinationField, transformation, transformConfig }]
  * @param {string} [unmappedFieldsMode='ignore']
- * @returns {object} Transformed record
+ * @returns {object} Transformed record or malformed record indicator
  */
 export function transformRecord(record, mappings = [], unmappedFieldsMode = 'ignore') {
   if (!record || typeof record !== 'object') return record;
+  if (record._isMalformed) return record;
 
-  const transformed = {};
+  try {
+    const transformed = {};
 
-  // Preserve internal metadata fields starting with '_'
-  for (const key of Object.keys(record)) {
-    if (key.startsWith('_')) {
-      transformed[key] = record[key];
-    }
-  }
-
-  // Copy unmapped fields if requested
-  if (unmappedFieldsMode === 'keep') {
-    for (const [k, v] of Object.entries(record)) {
-      if (!k.startsWith('_')) {
-        transformed[k] = v;
+    // Preserve internal metadata fields starting with '_'
+    for (const key of Object.keys(record)) {
+      if (key.startsWith('_')) {
+        transformed[key] = record[key];
       }
     }
+
+    // Copy unmapped fields if requested
+    if (unmappedFieldsMode === 'keep') {
+      for (const [k, v] of Object.entries(record)) {
+        if (!k.startsWith('_')) {
+          transformed[k] = v;
+        }
+      }
+    }
+
+    // Apply mapped transformations
+    for (const rule of mappings) {
+      const { sourceField, destinationField } = rule;
+      if (!sourceField || !destinationField) continue;
+
+      const transformType = rule.transformation || rule.transformRule || 'none';
+      const config = rule.transformConfig || rule.config || {};
+
+      const rawValue = record[sourceField];
+      const transformedValue = applyTransformation(rawValue, transformType, config, record);
+
+      if (transformedValue !== undefined) {
+        transformed[destinationField] = transformedValue;
+      }
+    }
+
+    transformed._isMapped = true;
+    transformed._isTransformed = true;
+    return transformed;
+  } catch (err) {
+    return {
+      _isMalformed: true,
+      _rowNumber: record._rowNumber || null,
+      error: {
+        type: err.errorType || ERROR_CODES.TRANSFORMATION_ERROR,
+        message: err.message
+      },
+      raw: record
+    };
   }
-
-  // Apply mapped transformations
-  for (const rule of mappings) {
-    const { sourceField, destinationField } = rule;
-    if (!sourceField || !destinationField) continue;
-
-    const transformType = rule.transformation || rule.transformRule || 'none';
-    const config = rule.transformConfig || rule.config || {};
-
-    const rawValue = record[sourceField];
-    const transformedValue = applyTransformation(rawValue, transformType, config, record);
-
-    transformed[destinationField] = transformedValue;
-  }
-
-  return transformed;
 }
 
 export default {

@@ -8,6 +8,7 @@ import {
   previewMappingTransformation,
   previewCustomRule
 } from '../services/mapping.service.js';
+import { ERROR_CODES, sendErrorResponse } from '../utils/errors.js';
 
 /**
  * Handle POST /api/mappings - Create a new mapping configuration
@@ -20,8 +21,11 @@ export async function handleSaveMapping(req, res) {
     if (!validation.valid) {
       return res.status(400).json({
         success: false,
-        message: 'Mapping validation failed',
-        errors: validation.errors
+        error: {
+          code: ERROR_CODES.INVALID_MAPPING,
+          message: 'Mapping validation failed',
+          details: validation.errors
+        }
       });
     }
 
@@ -34,12 +38,7 @@ export async function handleSaveMapping(req, res) {
     });
   } catch (error) {
     console.error('❌ Save mapping error:', error.message);
-    const status = error.status || 500;
-    res.status(status).json({
-      success: false,
-      message: error.message || 'Failed to save mapping configuration',
-      errors: error.details || [error.message]
-    });
+    return sendErrorResponse(res, error, 400);
   }
 }
 
@@ -53,7 +52,10 @@ export async function handleGetMapping(req, res) {
     if (!datasetId) {
       return res.status(400).json({
         success: false,
-        message: 'Dataset ID parameter is required'
+        error: {
+          code: ERROR_CODES.INVALID_MAPPING,
+          message: 'Dataset ID parameter is required'
+        }
       });
     }
 
@@ -63,14 +65,20 @@ export async function handleGetMapping(req, res) {
     if (!datasetWithMapping) {
       return res.status(404).json({
         success: false,
-        message: `Dataset '${datasetId}' not found`
+        error: {
+          code: ERROR_CODES.DATASET_NOT_FOUND,
+          message: `Dataset '${datasetId}' not found`
+        }
       });
     }
 
     if (!mapping) {
       return res.status(404).json({
         success: false,
-        message: `No mapping configuration found for dataset '${datasetId}'`,
+        error: {
+          code: ERROR_CODES.INVALID_MAPPING,
+          message: `No mapping configuration found for dataset '${datasetId}'`
+        },
         dataset: datasetWithMapping.dataset
       });
     }
@@ -82,11 +90,7 @@ export async function handleGetMapping(req, res) {
     });
   } catch (error) {
     console.error('❌ Get mapping error:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to retrieve mapping configuration',
-      error: error.message
-    });
+    return sendErrorResponse(res, error, 500);
   }
 }
 
@@ -105,8 +109,11 @@ export async function handleUpdateMapping(req, res) {
     if (!validation.valid) {
       return res.status(400).json({
         success: false,
-        message: 'Mapping validation failed',
-        errors: validation.errors
+        error: {
+          code: ERROR_CODES.INVALID_MAPPING,
+          message: 'Mapping validation failed',
+          details: validation.errors
+        }
       });
     }
 
@@ -119,12 +126,7 @@ export async function handleUpdateMapping(req, res) {
     });
   } catch (error) {
     console.error('❌ Update mapping error:', error.message);
-    const status = error.status || 500;
-    res.status(status).json({
-      success: false,
-      message: error.message || 'Failed to update mapping configuration',
-      errors: error.details || [error.message]
-    });
+    return sendErrorResponse(res, error, 400);
   }
 }
 
@@ -138,7 +140,10 @@ export async function handleDeleteMapping(req, res) {
     if (!datasetId) {
       return res.status(400).json({
         success: false,
-        message: 'Dataset ID parameter is required'
+        error: {
+          code: ERROR_CODES.INVALID_MAPPING,
+          message: 'Dataset ID parameter is required'
+        }
       });
     }
 
@@ -146,7 +151,10 @@ export async function handleDeleteMapping(req, res) {
     if (!existing) {
       return res.status(404).json({
         success: false,
-        message: `No mapping configuration found for dataset '${datasetId}'`
+        error: {
+          code: ERROR_CODES.INVALID_MAPPING,
+          message: `No mapping configuration found for dataset '${datasetId}'`
+        }
       });
     }
 
@@ -159,11 +167,7 @@ export async function handleDeleteMapping(req, res) {
     });
   } catch (error) {
     console.error('❌ Delete mapping error:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to delete mapping configuration',
-      error: error.message
-    });
+    return sendErrorResponse(res, error, 500);
   }
 }
 
@@ -174,7 +178,7 @@ export async function handleDeleteMapping(req, res) {
 export async function handlePreviewMapping(req, res) {
   try {
     const datasetId = req.params.datasetId || req.body.datasetId;
-    const { mappings = [], sampleRows = [], limit = 10, unmappedFieldsMode = 'ignore' } = req.body;
+    const { mappings = [], sampleRows = [], limit = 10, unmappedFieldsMode = 'ignore' } = req.body || {};
 
     const preview = await previewMappingTransformation(datasetId, {
       mappings,
@@ -190,11 +194,11 @@ export async function handlePreviewMapping(req, res) {
     });
   } catch (error) {
     console.error('❌ Preview mapping transformation error:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Unable to apply transformation. Please check the selected field and try again.',
-      technicalDetails: error.message
-    });
+    return sendErrorResponse(res, {
+      code: ERROR_CODES.TRANSFORMATION_ERROR,
+      message: 'Unable to apply transformation. Please check configuration and try again.',
+      details: [error.message]
+    }, 400);
   }
 }
 
@@ -220,13 +224,11 @@ export async function handlePreviewCustomRule(req, res) {
     });
   } catch (error) {
     console.error('❌ Custom JS rule preview error:', error.message);
-    res.status(500).json({
-      success: false,
-      valid: false,
-      errorType: 'server_error',
-      message: 'Unable to validate transformation. Try again.',
-      technicalDetails: error.message
-    });
+    return sendErrorResponse(res, {
+      code: ERROR_CODES.TRANSFORMATION_ERROR,
+      message: 'Unable to validate transformation rule. Try again.',
+      details: [error.message]
+    }, 400);
   }
 }
 

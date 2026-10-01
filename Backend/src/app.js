@@ -4,6 +4,7 @@ import jobRoutes from "./routes/job.routes.js";
 import fileRoutes from "./routes/file.routes.js";
 import mappingRoutes from "./routes/mapping.routes.js";
 import transformationRoutes from "./routes/transformation.routes.js";
+import { sendErrorResponse } from "./utils/errors.js";
 
 const app = express();
 
@@ -21,6 +22,11 @@ app.get("/health", (req, res) => {
     service: "StreamWeaver Backend",
     timestamp: new Date().toISOString()
   });
+});
+
+app.use((err, req, res, next) => {
+  console.error("Unhandled App error:", err.message);
+  sendErrorResponse(res, err, 500);
 });
 
 export default app;
