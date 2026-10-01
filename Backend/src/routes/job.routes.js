@@ -3,7 +3,8 @@ import {
   createJob,
   getJob,
   getAllJobs,
-  startJob
+  startJob,
+  cancelJob
 } from "../controllers/job.controller.js";
 
 const router = express.Router();

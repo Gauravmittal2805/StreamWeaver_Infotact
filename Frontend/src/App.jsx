@@ -11,6 +11,7 @@ import HistoryPage from './pages/HistoryPage';
 import SettingsPage from './pages/SettingsPage';
 import MappingPage from './pages/MappingPage';
 import ProcessingDashboardPage from './pages/ProcessingDashboardPage';
+import JobDetailsPage from './pages/JobDetailsPage';
 import NotFoundPage from './pages/NotFoundPage';
 
 export function App() {
@@ -27,6 +28,7 @@ export function App() {
           <Route path="processing/:jobId" element={<ProcessingDashboardPage />} />
           <Route path="pipelines" element={<PipelinesPage />} />
           <Route path="jobs" element={<JobsPage />} />
+          <Route path="jobs/:jobId" element={<JobDetailsPage />} />
           <Route path="history" element={<HistoryPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="*" element={<NotFoundPage />} />

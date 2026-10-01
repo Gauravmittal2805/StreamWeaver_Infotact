@@ -53,4 +53,17 @@ export const jobService = {
     });
     return await handleApiResponse(res);
   },
+
+  /**
+   * Get all ETL jobs, optionally filtered by datasetId
+   * @param {string} [datasetId]
+   * @returns {Promise<Object>}
+   */
+  async getAllJobs(datasetId = null) {
+    const url = datasetId
+      ? `${API_BASE_URL}/jobs?datasetId=${encodeURIComponent(datasetId)}`
+      : `${API_BASE_URL}/jobs`;
+    const res = await fetch(url);
+    return await handleApiResponse(res);
+  },
 };
