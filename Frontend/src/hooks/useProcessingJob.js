@@ -21,6 +21,59 @@ const TERMINAL_STATUSES = new Set([
 const MAX_RECONNECT_ATTEMPTS = 5;
 
 /**
+ * Merges incoming job updates into previous state while guaranteeing that
+ * progress percentages, processed counts, and metrics NEVER reset backwards
+ * or revert to 0 on reconnect or partial payload delivery.
+ */
+function mergeJobData(prev, incoming) {
+  if (!incoming) return prev;
+  if (!prev) return incoming;
+
+  const prevProgress = Number(prev.progressPercent ?? 0);
+  const incomingProgress = Number(incoming.progressPercent ?? 0);
+  const isCompleted = incoming.status === JOB_STATUS.COMPLETED || prev.status === JOB_STATUS.COMPLETED;
+  const finalProgress = isCompleted
+    ? 100
+    : Math.max(prevProgress, incomingProgress);
+
+  const prevProcessed = Number(prev.processedRows ?? 0);
+  const incomingProcessed = Number(incoming.processedRows ?? 0);
+  const finalProcessed = Math.max(prevProcessed, incomingProcessed);
+
+  const prevSuccess = Number(prev.successfulRows ?? 0);
+  const incomingSuccess = Number(incoming.successfulRows ?? 0);
+  const finalSuccess = Math.max(prevSuccess, incomingSuccess);
+
+  const prevFailed = Number(prev.failedRows ?? 0);
+  const incomingFailed = Number(incoming.failedRows ?? 0);
+  const finalFailed = Math.max(prevFailed, incomingFailed);
+
+  const finalTotal = Number(incoming.totalRows || prev.totalRows || 0);
+  const finalSpeed = incoming.rowsPerSecond !== undefined
+    ? Number(incoming.rowsPerSecond)
+    : Number(prev.rowsPerSecond ?? 0);
+
+  const incomingErrors = Array.isArray(incoming.errors) ? incoming.errors : [];
+  const prevErrors = Array.isArray(prev.errors) ? prev.errors : [];
+  const finalErrors = incomingErrors.length >= prevErrors.length ? incomingErrors : prevErrors;
+
+  return {
+    ...prev,
+    ...incoming,
+    totalRows: finalTotal,
+    processedRows: finalProcessed,
+    successfulRows: finalSuccess,
+    failedRows: finalFailed,
+    progressPercent: finalProgress,
+    rowsPerSecond: finalSpeed,
+    errors: finalErrors,
+    startedAt: incoming.startedAt || prev.startedAt || null,
+    completedAt: incoming.completedAt || prev.completedAt || null,
+    datasetId: incoming.datasetId || prev.datasetId || null,
+  };
+}
+
+/**
  * Hook for managing a live ETL processing job.
  * Connects via WebSocket for real-time progress updates and
  * falls back to REST polling if WebSocket is unavailable.
@@ -31,6 +84,7 @@ export function useProcessingJob() {
   const [status, setStatus] = useState(JOB_STATUS.IDLE);
   const [wsStatus, setWsStatus] = useState('disconnected'); // 'connected' | 'disconnected' | 'reconnecting'
   const [wsError, setWsError] = useState(null);
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
 
   const wsRef = useRef(null);
   const reconnectTimerRef = useRef(null);
@@ -50,8 +104,10 @@ export function useProcessingJob() {
     try {
       const res = await jobService.getJob(jId);
       if (res?.job) {
-        setJobData(res.job);
-        setStatus(res.job.status || JOB_STATUS.QUEUED);
+        setJobData(prev => mergeJobData(prev, res.job));
+        if (res.job.status) {
+          setStatus(res.job.status);
+        }
       }
     } catch (err) {
       console.warn('[useProcessingJob] Poll failed:', err.message);
@@ -81,7 +137,6 @@ export function useProcessingJob() {
       if (VITE_WS_URL) {
         WS_URL = VITE_WS_URL + '/ws';
       } else {
-        // Use the same host, just change protocol
         const loc = window.location;
         const wsProtocol = loc.protocol === 'https:' ? 'wss:' : 'ws:';
         WS_URL = `${wsProtocol}//${loc.host}/ws`;
@@ -99,8 +154,13 @@ export function useProcessingJob() {
         setWsStatus('connected');
         setWsError(null);
         reconnectAttemptsRef.current = 0;
+        setReconnectAttempt(0);
+
         // Subscribe to this job's events
         ws.send(JSON.stringify({ type: 'subscribe', jobId: jId }));
+
+        // Immediately retrieve latest job status upon connection/reconnection
+        pollJobStatus(jId);
       };
 
       ws.onmessage = (event) => {
@@ -111,26 +171,30 @@ export function useProcessingJob() {
 
           switch (msg.type) {
             case 'progress':
-              setJobData(prev => ({ ...(prev || {}), ...msg }));
+            case 'job_progress':
+              setJobData(prev => mergeJobData(prev, msg));
               if (msg.status) setStatus(msg.status);
               break;
             case 'completed':
-              setJobData(prev => ({ ...(prev || {}), ...msg, status: JOB_STATUS.COMPLETED }));
+              setJobData(prev => mergeJobData(prev, { ...msg, status: JOB_STATUS.COMPLETED }));
               setStatus(JOB_STATUS.COMPLETED);
               break;
             case 'failed':
-              setJobData(prev => ({ ...(prev || {}), ...msg, status: JOB_STATUS.FAILED }));
+              setJobData(prev => mergeJobData(prev, { ...msg, status: JOB_STATUS.FAILED }));
               setStatus(JOB_STATUS.FAILED);
               break;
             case 'cancelled':
-              setJobData(prev => ({ ...(prev || {}), ...msg, status: JOB_STATUS.CANCELLED }));
+              setJobData(prev => mergeJobData(prev, { ...msg, status: JOB_STATUS.CANCELLED }));
               setStatus(JOB_STATUS.CANCELLED);
               break;
             case 'subscribed':
             case 'pong':
-              // Heartbeat / acknowledgement — no action needed
               break;
             default:
+              if (msg.status) {
+                setJobData(prev => mergeJobData(prev, msg));
+                setStatus(msg.status);
+              }
               break;
           }
         } catch (e) {
@@ -148,12 +212,18 @@ export function useProcessingJob() {
         if (ws._pingInterval) clearInterval(ws._pingInterval);
         setWsStatus('disconnected');
 
+        // Immediately retrieve latest job status via REST when socket drops
+        if (currentJobIdRef.current) {
+          pollJobStatus(currentJobIdRef.current);
+        }
+
         // Don't reconnect if job reached terminal state
         if (TERMINAL_STATUSES.has(currentStatusRef.current)) return;
 
         // Exponential backoff reconnect
         if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
           reconnectAttemptsRef.current += 1;
+          setReconnectAttempt(reconnectAttemptsRef.current);
           const delay = Math.min(1000 * 2 ** reconnectAttemptsRef.current, 30000);
           setWsStatus('reconnecting');
           reconnectTimerRef.current = setTimeout(() => {
@@ -175,7 +245,17 @@ export function useProcessingJob() {
       setWsStatus('disconnected');
       setWsError(err.message);
     }
-  }, []);
+  }, [pollJobStatus]);
+
+  // Manual reconnect trigger
+  const reconnectNow = useCallback(() => {
+    if (!currentJobIdRef.current) return;
+    clearTimeout(reconnectTimerRef.current);
+    reconnectAttemptsRef.current = 0;
+    setReconnectAttempt(0);
+    pollJobStatus(currentJobIdRef.current);
+    connectWebSocket(currentJobIdRef.current);
+  }, [connectWebSocket, pollJobStatus]);
 
   // ── Start a new job ─────────────────────────────────────────────────────────
   const startJob = useCallback(async (datasetId) => {
@@ -307,6 +387,9 @@ export function useProcessingJob() {
     status,
     wsStatus,
     wsError,
+    reconnectAttempt,
+    maxReconnectAttempts: MAX_RECONNECT_ATTEMPTS,
+    reconnectNow,
     startJob,
     attachJob,
     cancelJob,

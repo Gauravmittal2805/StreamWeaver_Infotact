@@ -2,6 +2,11 @@ import { getDB } from "../config/db.js";
 import { JOB_STATUS, calculateProgressPercent } from "../utils/job.utils.js";
 import { broadcastJobProgress } from "./websocket.service.js";
 
+let _jobBroadcast = null;
+export function setJobBroadcast(fn) {
+  _jobBroadcast = fn;
+}
+
 const COLLECTION = "jobs";
 const inMemoryJobs = new Map();
 
@@ -84,6 +89,17 @@ export async function updateJob(jobId, updates) {
   const formatted = formatJobResponse(merged);
 
   // Broadcast live update over WebSocket
+  if (_jobBroadcast) {
+    try {
+      _jobBroadcast(jobId, {
+        type: formatted.status === 'completed' ? 'completed' : formatted.status === 'failed' ? 'failed' : formatted.status === 'cancelled' ? 'cancelled' : 'progress',
+        ...formatted
+      });
+    } catch (err) {
+      console.error(`[JobService] Failed to broadcast WS update for job ${jobId}:`, err.message);
+    }
+  }
+
   try {
     broadcastJobProgress(jobId, formatted);
   } catch (err) {
