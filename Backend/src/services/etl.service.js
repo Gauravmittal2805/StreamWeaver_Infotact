@@ -10,12 +10,38 @@ import { createETLTransform } from "../streams/etl.stream.js";
 import { createCounterStream } from "../streams/counter.stream.js";
 import { JOB_STATUS } from "../utils/job.utils.js";
 
+// ─── WebSocket Broadcast Integration ─────────────────────────────────────────
+// Set by server.js after WebSocket server is initialized.
+let _broadcast = null;
+
+/**
+ * Register the WebSocket broadcast function from server.js.
+ * @param {Function} fn - broadcast(jobId, data) function
+ */
+export function setBroadcast(fn) {
+  _broadcast = fn;
+}
+
+/**
+ * Safely broadcast a message for a given job.
+ * @param {string} jobId
+ * @param {object} data
+ */
+function broadcastJobEvent(jobId, data) {
+  if (!_broadcast) return;
+  try {
+    _broadcast(jobId, data);
+  } catch (err) {
+    console.warn(`[ETL] Broadcast failed for job ${jobId}:`, err.message);
+  }
+}
+
 /**
  * Orchestrates the full StreamWeaver ETL processing pipeline for a given dataset and job.
- * Pipeline stages (Step 8):
+ * Pipeline stages:
  * CSV / JSON -> Parser -> Mapping Transform -> Transformation Transform -> ETL Transform -> Counter Stream
  *
- * Preserves streaming backpressure throughout and processes multi-GB files incrementally (Step 9).
+ * Preserves streaming backpressure throughout and processes multi-GB files incrementally.
  *
  * @param {string} datasetId
  * @param {string} jobId
@@ -29,6 +55,19 @@ export async function processDataset(datasetId, jobId, options = {}) {
   await jobService.updateJob(jobId, {
     status: JOB_STATUS.PROCESSING,
     startedAt
+  });
+
+  // Broadcast job start
+  broadcastJobEvent(jobId, {
+    type: "progress",
+    jobId,
+    status: JOB_STATUS.PROCESSING,
+    startedAt,
+    processedRows: 0,
+    successfulRows: 0,
+    failedRows: 0,
+    rowsPerSecond: 0,
+    progressPercent: 0,
   });
 
   try {
@@ -54,7 +93,7 @@ export async function processDataset(datasetId, jobId, options = {}) {
       console.log(`[ETL] Applied mapping rules for dataset '${datasetId}':`, mappingConfig.mappings);
     }
 
-    // 4. Retrieve optional transformation configuration (Step 8 & 9 integration)
+    // 4. Retrieve optional transformation configuration
     const transformationConfig = options.transformations || getTransformation(datasetId);
     const transformationTransform = transformationConfig ? createTransformationTransform(transformationConfig) : null;
     if (transformationConfig) {
@@ -80,6 +119,19 @@ export async function processDataset(datasetId, jobId, options = {}) {
             rowsPerSecond: metrics.rowsPerSecond || 0,
             progressPercent: metrics.progressPercent || 0,
             errors: metrics.errors || []
+          });
+
+          // Broadcast live progress to subscribed WebSocket clients
+          broadcastJobEvent(jobId, {
+            type: "progress",
+            jobId,
+            status: JOB_STATUS.PROCESSING,
+            totalRows: (metadata && metadata.totalRows) || metrics.recordsReceived,
+            processedRows: metrics.processedRows || 0,
+            successfulRows: metrics.successfulRows || 0,
+            failedRows: metrics.failedRows || 0,
+            rowsPerSecond: metrics.rowsPerSecond || 0,
+            progressPercent: metrics.progressPercent || 0,
           });
         } catch (err) {
           console.error(`[ETL] Failed to update progress for job ${jobId}:`, err.message);
@@ -126,6 +178,20 @@ export async function processDataset(datasetId, jobId, options = {}) {
 
     console.log(`[ETL] Completed job '${jobId}': ${finalMetrics.successfulRows} success, ${finalMetrics.failedRows} failed in ${finalMetrics.durationSeconds}s (${finalMetrics.rowsPerSecond} rows/sec)`);
 
+    // Broadcast completion event
+    broadcastJobEvent(jobId, {
+      type: "completed",
+      jobId,
+      status: JOB_STATUS.COMPLETED,
+      totalRows: completedJob.totalRows,
+      processedRows: completedJob.processedRows,
+      successfulRows: completedJob.successfulRows,
+      failedRows: completedJob.failedRows,
+      rowsPerSecond: completedJob.rowsPerSecond,
+      progressPercent: 100,
+      completedAt,
+    });
+
     return {
       success: true,
       jobId,
@@ -143,6 +209,15 @@ export async function processDataset(datasetId, jobId, options = {}) {
       error: error.message
     });
 
+    // Broadcast failure event
+    broadcastJobEvent(jobId, {
+      type: "failed",
+      jobId,
+      status: JOB_STATUS.FAILED,
+      error: "Processing failed. Please check your dataset and pipeline configuration.",
+      completedAt,
+    });
+
     return {
       success: false,
       jobId,
@@ -154,5 +229,6 @@ export async function processDataset(datasetId, jobId, options = {}) {
 }
 
 export default {
-  processDataset
+  processDataset,
+  setBroadcast
 };

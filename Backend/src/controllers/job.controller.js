@@ -88,8 +88,33 @@ export async function startJob(req, res) {
   }
 }
 
+export async function cancelJob(req, res) {
+  try {
+    const { jobId } = req.params;
+    const job = await jobService.getJob(jobId);
+    if (!job) {
+      return res.status(404).json({ success: false, message: "Job not found" });
+    }
+    if (job.status === "completed" || job.status === "failed") {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot cancel a job with status: ${job.status}`
+      });
+    }
+    const updated = await jobService.updateJob(jobId, {
+      status: "cancelled",
+      completedAt: new Date().toISOString()
+    });
+    res.json({ success: true, job: updated });
+  } catch (error) {
+    console.error("Cancel job error:", error);
+    res.status(500).json({ success: false, message: "Failed to cancel job" });
+  }
+}
+
 export default {
   createJob,
   getJob,
-  startJob
+  startJob,
+  cancelJob
 };

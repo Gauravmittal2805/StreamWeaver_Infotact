@@ -678,7 +678,7 @@ export function MappingPage() {
       {activeTab === 'process' && (
         <div>
           <ProcessingStage
-            datasetMeta={datasetMeta || { filename: displayName, format: displayFormat }}
+            datasetMeta={{ ...(datasetMeta || {}), filename: displayName, format: displayFormat, datasetId }}
             mappings={mappings}
             sampleRows={previewData?.rows || sampleRows}
             onBackToTransform={() => setActiveTab('transform')}
