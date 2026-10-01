@@ -7,8 +7,17 @@ const jobSubscriptions = new Map(); // jobId -> Set<WebSocket>
  * Initializes WebSocket Server attached to express/HTTP server.
  * @param {import('http').Server} server 
  */
-export function initWebSocketServer(server) {
-  wss = new WebSocketServer({ server, path: '/ws/jobs' });
+export function initWebSocketServer(serverOptions) {
+  if (wss) return wss;
+
+  const server = serverOptions && serverOptions.listen ? serverOptions : (serverOptions && serverOptions.server ? serverOptions.server : serverOptions);
+
+  try {
+    wss = new WebSocketServer({ server, path: '/ws' });
+  } catch (err) {
+    console.warn('[WebSocket] Warning: Failed to bind to path /ws:', err.message);
+    return null;
+  }
 
   wss.on('connection', (ws) => {
     ws.isAlive = true;
@@ -35,6 +44,8 @@ export function initWebSocketServer(server) {
             jobSubscriptions.get(data.jobId).delete(ws);
           }
           ws.send(JSON.stringify({ type: 'unsubscribed', jobId: data.jobId }));
+        } else if (data.type === 'ping') {
+          ws.send(JSON.stringify({ type: 'pong' }));
         }
       } catch (err) {
         console.error('[WebSocket] Invalid message received:', err.message);
@@ -45,8 +56,16 @@ export function initWebSocketServer(server) {
       for (const jobId of ws.subscribedJobs) {
         if (jobSubscriptions.has(jobId)) {
           jobSubscriptions.get(jobId).delete(ws);
+          if (jobSubscriptions.get(jobId).size === 0) {
+            jobSubscriptions.delete(jobId);
+          }
         }
       }
+      ws.subscribedJobs.clear();
+    });
+
+    ws.on('error', (err) => {
+      console.warn('[WebSocket] Client error:', err.message);
     });
   });
 
@@ -62,9 +81,10 @@ export function initWebSocketServer(server) {
 
   wss.on('close', () => {
     clearInterval(pingInterval);
+    wss = null;
   });
 
-  console.log('⚡ WebSocket Server initialized on path /ws/jobs');
+  console.log('⚡ WebSocket Server initialized on path /ws');
   return wss;
 }
 
@@ -81,7 +101,7 @@ export function broadcastJobProgress(jobId, progressData) {
   if (!clients || clients.size === 0) return;
 
   const payload = JSON.stringify({
-    type: 'job_progress',
+    type: progressData.type || 'progress',
     jobId,
     timestamp: new Date().toISOString(),
     ...progressData
@@ -89,7 +109,11 @@ export function broadcastJobProgress(jobId, progressData) {
 
   for (const client of clients) {
     if (client.readyState === WebSocket.OPEN) {
-      client.send(payload);
+      try {
+        client.send(payload);
+      } catch (err) {
+        console.warn(`[WebSocket] Send error for job ${jobId}:`, err.message);
+      }
     }
   }
 }

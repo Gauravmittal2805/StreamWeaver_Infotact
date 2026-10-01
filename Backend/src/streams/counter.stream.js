@@ -50,6 +50,7 @@ export class RecordCounterStream extends Writable {
           field: record.field || null,
           type: (record.error && record.error.type) || "MALFORMED_RECORD",
           message: (record.error && record.error.message) || "Malformed record structure",
+          status: "failed",
           raw: record.raw ? (typeof record.raw === 'object' ? JSON.stringify(record.raw).substring(0, 100) : String(record.raw).substring(0, 100)) : undefined
         });
       }

@@ -18,11 +18,17 @@ export class MongoBulkBufferStream extends Transform {
     this.buffer = [];
     this.insertedCount = 0;
     this.dbFailedCount = 0; // Only tracks DB write failures
+    this.errors = [];
+    this.maxErrorSample = options.maxErrorSample || 100;
     this.onBatchResult = options.onBatchResult || null;
   }
 
   get failedCount() {
     return this.dbFailedCount;
+  }
+
+  getErrors() {
+    return this.errors;
   }
 
   async _transform(record, encoding, callback) {
@@ -73,19 +79,22 @@ export class MongoBulkBufferStream extends Transform {
     if (this.buffer.length === 0) return;
 
     const recordsToInsert = [...this.buffer];
-    this.buffer = [];
+    this.buffer = []; // Always clear buffer immediately
 
     try {
       let db;
       try {
         db = getDB();
       } catch (err) {
-        // DB not connected — log fallback and update count without terminating pipeline
-        this.insertedCount += recordsToInsert.length;
-        if (typeof this.onBatchResult === 'function') {
-          this.onBatchResult({ inserted: recordsToInsert.length, failed: 0 });
+        // DB not connected — in fallback/memory mode, treat as inserted or record connection state
+        if (process.env.NODE_ENV === 'test' || process.env.STRICT_DB !== 'true') {
+          this.insertedCount += recordsToInsert.length;
+          if (typeof this.onBatchResult === 'function') {
+            this.onBatchResult({ inserted: recordsToInsert.length, failed: 0 });
+          }
+          return;
         }
-        return;
+        throw err;
       }
 
       const collection = db.collection(this.collectionName);
@@ -110,11 +119,38 @@ export class MongoBulkBufferStream extends Transform {
         this.insertedCount += inserted;
         this.dbFailedCount += failed;
 
+        // Parse writeErrors for failed record tracking (Step 7)
+        for (const writeErr of writeErrors) {
+          if (this.errors.length < this.maxErrorSample) {
+            const index = writeErr.index !== undefined ? writeErr.index : null;
+            const failedRecord = index !== null ? recordsToInsert[index] : null;
+            this.errors.push({
+              rowNumber: (failedRecord && (failedRecord._rowNumber || failedRecord.rowNumber)) || (index !== null ? index + 1 : null),
+              field: writeErr.err?.op?.field || null,
+              type: writeErr.code === 11000 ? 'DUPLICATE_KEY_ERROR' : 'DB_INSERT_FAILURE',
+              message: writeErr.errmsg || writeErr.message || 'Database write failed',
+              status: 'failed'
+            });
+          }
+        }
+
         if (typeof this.onBatchResult === 'function') {
           this.onBatchResult({ inserted, failed, errors: writeErrors.slice(0, 10) });
         }
       } else {
+        // Connection failure or other database-level errors
         this.dbFailedCount += recordsToInsert.length;
+
+        if (this.errors.length < this.maxErrorSample) {
+          this.errors.push({
+            rowNumber: null,
+            field: null,
+            type: err.name === 'MongoNetworkError' || err.name === 'MongoServerSelectionError' ? 'DB_CONNECTION_FAILURE' : 'DB_BATCH_FAILURE',
+            message: err.message || 'MongoDB batch write execution failed',
+            status: 'failed'
+          });
+        }
+
         if (typeof this.onBatchResult === 'function') {
           this.onBatchResult({ inserted: 0, failed: recordsToInsert.length, error: err.message });
         }

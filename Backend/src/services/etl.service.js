@@ -37,6 +37,39 @@ function broadcastJobEvent(jobId, data) {
   }
 }
 
+// ─── Active Job Registry & Cancellation Support ────────────────────────────────
+const activeJobs = new Map(); // jobId -> { fileReadStream, isCancelled: boolean }
+
+/**
+ * Cancels an actively running ETL job stream.
+ * Stops accepting new records and safely finishes the current batch.
+ * @param {string} jobId 
+ */
+export async function cancelETLJob(jobId) {
+  const active = activeJobs.get(jobId);
+  if (active) {
+    active.isCancelled = true;
+    if (active.fileReadStream && typeof active.fileReadStream.destroy === 'function') {
+      active.fileReadStream.destroy();
+    }
+  }
+
+  const completedAt = new Date().toISOString();
+  const updatedJob = await jobService.updateJob(jobId, {
+    status: JOB_STATUS.CANCELLED,
+    completedAt
+  });
+
+  broadcastJobEvent(jobId, {
+    type: "cancelled",
+    jobId,
+    status: JOB_STATUS.CANCELLED,
+    completedAt
+  });
+
+  return updatedJob;
+}
+
 /**
  * Orchestrates the full StreamWeaver ETL processing pipeline for a dataset and job.
  *
@@ -44,11 +77,6 @@ function broadcastJobEvent(jobId, data) {
  * File Read Stream → Parser Stream → Mapping & Transformation Stream → MongoDB Bulk Buffer Stream → Metric & Counter Stream
  *
  * Preserves streaming backpressure throughout and processes multi-GB files incrementally with flat memory profile.
- * Orchestrates the full StreamWeaver ETL processing pipeline for a given dataset and job.
- * Pipeline stages:
- * CSV / JSON -> Parser -> Mapping Transform -> Transformation Transform -> ETL Transform -> Counter Stream
- *
- * Preserves streaming backpressure throughout and processes multi-GB files incrementally.
  *
  * @param {string} datasetId
  * @param {string} jobId
@@ -63,6 +91,10 @@ export async function processDataset(datasetId, jobId, options = {}) {
     status: JOB_STATUS.PROCESSING,
     startedAt
   });
+
+  // Register active job for cancellation tracking
+  const activeJobRef = { fileReadStream: null, isCancelled: false };
+  activeJobs.set(jobId, activeJobRef);
 
   // Broadcast job start
   broadcastJobEvent(jobId, {
@@ -87,6 +119,8 @@ export async function processDataset(datasetId, jobId, options = {}) {
     }
 
     const { stream: fileReadStream, metadata } = readStreamResult;
+    activeJobRef.fileReadStream = fileReadStream;
+
     const format = (metadata && metadata.format) ? metadata.format.toLowerCase() : (options.format || "csv");
     console.log(`[ETL Engine] Stream acquired. Format '${format}' for dataset '${datasetId}'`);
 
@@ -122,7 +156,12 @@ export async function processDataset(datasetId, jobId, options = {}) {
       totalExpectedRows: (metadata && metadata.totalRows) || options.totalRows || 0,
       onProgress: async (metrics) => {
         try {
-          // Adjust successful/failed counts with MongoDB write metrics if available
+          if (activeJobRef.isCancelled) return;
+
+          // Combine malformed record errors and MongoDB write errors for tracking (Step 7)
+          const dbErrors = (typeof mongoStream.getErrors === 'function') ? mongoStream.getErrors() : [];
+          const combinedErrors = [...(metrics.errors || []), ...dbErrors].slice(0, 100);
+
           const mongoInserted = mongoStream.insertedCount || 0;
           const mongoFailed = mongoStream.failedCount || 0;
 
@@ -136,7 +175,7 @@ export async function processDataset(datasetId, jobId, options = {}) {
             failedRows: totalFailed,
             rowsPerSecond: metrics.rowsPerSecond || 0,
             progressPercent: metrics.progressPercent || 0,
-            errors: metrics.errors || []
+            errors: combinedErrors
           });
 
           // Broadcast live progress to subscribed WebSocket clients
@@ -146,8 +185,8 @@ export async function processDataset(datasetId, jobId, options = {}) {
             status: JOB_STATUS.PROCESSING,
             totalRows: (metadata && metadata.totalRows) || metrics.recordsReceived,
             processedRows: metrics.processedRows || 0,
-            successfulRows: metrics.successfulRows || 0,
-            failedRows: metrics.failedRows || 0,
+            successfulRows: totalSuccessful,
+            failedRows: totalFailed,
             rowsPerSecond: metrics.rowsPerSecond || 0,
             progressPercent: metrics.progressPercent || 0,
           });
@@ -176,8 +215,20 @@ export async function processDataset(datasetId, jobId, options = {}) {
     // 8. Execute pipeline with full streaming backpressure
     await pipeline(...pipelineStages);
 
+    if (activeJobRef.isCancelled) {
+      return {
+        success: false,
+        jobId,
+        status: JOB_STATUS.CANCELLED,
+        message: "Job processing was cancelled by user"
+      };
+    }
+
     // 9. Final job update on completion
     const finalMetrics = counterStream.getMetrics();
+    const dbErrors = (typeof mongoStream.getErrors === 'function') ? mongoStream.getErrors() : [];
+    const combinedErrors = [...(finalMetrics.errors || []), ...dbErrors].slice(0, 100);
+
     const completedAt = new Date().toISOString();
 
     const finalFailed = finalMetrics.failedRows + (mongoStream.failedCount || 0);
@@ -191,7 +242,7 @@ export async function processDataset(datasetId, jobId, options = {}) {
       failedRows: finalFailed,
       rowsPerSecond: finalMetrics.rowsPerSecond || 0,
       progressPercent: 100,
-      errors: finalMetrics.errors || [],
+      errors: combinedErrors,
       completedAt
     });
 
@@ -223,6 +274,17 @@ export async function processDataset(datasetId, jobId, options = {}) {
       job: completedJob
     };
   } catch (error) {
+    if (activeJobRef.isCancelled) {
+      console.log(`[ETL Engine] Job '${jobId}' stopped due to cancellation.`);
+      const currentJob = await jobService.getJob(jobId);
+      return {
+        success: false,
+        jobId,
+        status: JOB_STATUS.CANCELLED,
+        job: currentJob
+      };
+    }
+
     console.error(`[ETL Engine] Processing failed for job '${jobId}':`, error.message);
     const completedAt = new Date().toISOString();
 
@@ -240,7 +302,7 @@ export async function processDataset(datasetId, jobId, options = {}) {
       type: "failed",
       jobId,
       status: JOB_STATUS.FAILED,
-      error: "Processing failed. Please check your dataset and pipeline configuration.",
+      error: error.message || "Processing failed. Please check your dataset and pipeline configuration.",
       completedAt,
     });
 
@@ -251,10 +313,13 @@ export async function processDataset(datasetId, jobId, options = {}) {
       error: error.message,
       job: failedJob
     };
+  } finally {
+    activeJobs.delete(jobId);
   }
 }
 
 export default {
   processDataset,
+  cancelETLJob,
   setBroadcast
 };

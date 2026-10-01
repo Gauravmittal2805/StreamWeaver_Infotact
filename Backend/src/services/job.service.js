@@ -103,6 +103,103 @@ export async function updateJob(jobId, updates) {
   return formatted;
 }
 
+export async function cancelJob(jobId) {
+  const job = await getJob(jobId);
+  if (!job) {
+    throw new Error(`Job '${jobId}' not found`);
+  }
+
+  if (job.status === JOB_STATUS.COMPLETED || job.status === JOB_STATUS.FAILED || job.status === JOB_STATUS.CANCELLED) {
+    return job;
+  }
+
+  const updated = await updateJob(jobId, {
+    status: JOB_STATUS.CANCELLED,
+    completedAt: new Date().toISOString()
+  });
+
+  return updated;
+}
+
+export async function recoverStuckJobs() {
+  const recoveredAt = new Date().toISOString();
+  let count = 0;
+
+  for (const [jobId, job] of inMemoryJobs.entries()) {
+    if (job.status === JOB_STATUS.PROCESSING || job.status === JOB_STATUS.QUEUED) {
+      inMemoryJobs.set(jobId, {
+        ...job,
+        status: JOB_STATUS.FAILED,
+        completedAt: recoveredAt,
+        error: {
+          code: 'SERVER_RESTART_RECOVERY',
+          message: 'Job was interrupted due to a server restart or system termination'
+        }
+      });
+      count++;
+    }
+  }
+
+  try {
+    const db = getDB();
+    await db.collection(COLLECTION).updateMany(
+      { status: { $in: [JOB_STATUS.PROCESSING, JOB_STATUS.QUEUED] } },
+      {
+        $set: {
+          status: JOB_STATUS.FAILED,
+          completedAt: recoveredAt,
+          error: {
+            code: 'SERVER_RESTART_RECOVERY',
+            message: 'Job was interrupted due to a server restart or system termination'
+          }
+        }
+      }
+    );
+  } catch (err) {
+    // Database offline fallback
+  }
+
+  if (count > 0) {
+    console.log(`[JobService] Cleaned up ${count} stuck jobs on recovery`);
+  }
+}
+
+export async function getJobStats(jobId) {
+  const job = await getJob(jobId);
+  if (!job) return null;
+
+  const total = job.totalRows || 0;
+  const processed = job.processedRows || 0;
+  const success = job.successfulRows || 0;
+  const failed = job.failedRows || 0;
+  const rps = job.rowsPerSecond || 0;
+  const errorRate = processed > 0 ? Number(((failed / processed) * 100).toFixed(2)) : 0;
+  
+  let durationSeconds = 0;
+  if (job.startedAt) {
+    const end = job.completedAt ? new Date(job.completedAt) : new Date();
+    durationSeconds = Math.max(0, (end.getTime() - new Date(job.startedAt).getTime()) / 1000);
+  }
+
+  return {
+    jobId: job.jobId,
+    datasetId: job.datasetId,
+    status: job.status,
+    totalRows: total,
+    processedRows: processed,
+    successfulRows: success,
+    failedRows: failed,
+    errorRatePercent: errorRate,
+    rowsPerSecond: rps,
+    progressPercent: job.progressPercent || 0,
+    durationSeconds: Number(durationSeconds.toFixed(2)),
+    errorCount: (job.errors && job.errors.length) || 0,
+    sampleErrors: (job.errors || []).slice(0, 10),
+    startedAt: job.startedAt,
+    completedAt: job.completedAt
+  };
+}
+
 function formatJobResponse(job) {
   const total = job.totalRows || 0;
   const processed = job.processedRows || 0;
@@ -132,5 +229,8 @@ export default {
   createJob,
   getJob,
   getAllJobs,
-  updateJob
+  updateJob,
+  cancelJob,
+  recoverStuckJobs,
+  getJobStats
 };
