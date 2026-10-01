@@ -10,6 +10,7 @@ import JobsPage from './pages/JobsPage';
 import HistoryPage from './pages/HistoryPage';
 import SettingsPage from './pages/SettingsPage';
 import MappingPage from './pages/MappingPage';
+import ProcessingDashboardPage from './pages/ProcessingDashboardPage';
 import NotFoundPage from './pages/NotFoundPage';
 
 export function App() {
@@ -23,6 +24,7 @@ export function App() {
           <Route path="datasets/:datasetId/preview" element={<DatasetPreviewPage />} />
           <Route path="datasets/:datasetId/mapping" element={<MappingPage />} />
           <Route path="datasets/:datasetId" element={<DatasetPreviewPage />} />
+          <Route path="processing/:jobId" element={<ProcessingDashboardPage />} />
           <Route path="pipelines" element={<PipelinesPage />} />
           <Route path="jobs" element={<JobsPage />} />
           <Route path="history" element={<HistoryPage />} />

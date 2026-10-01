@@ -12,5 +12,6 @@ router.get("/", getAllJobs);
 router.post("/", createJob);
 router.get("/:jobId", getJob);
 router.post("/:jobId/start", startJob);
+router.post("/:jobId/cancel", cancelJob);
 
 export default router;
