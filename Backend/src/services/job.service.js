@@ -92,7 +92,7 @@ export async function updateJob(jobId, updates) {
   if (_jobBroadcast) {
     try {
       _jobBroadcast(jobId, {
-        type: formatted.status === 'completed' ? 'completed' : formatted.status === 'failed' ? 'failed' : formatted.status === 'cancelled' ? 'cancelled' : 'progress',
+        type: formatted.status === 'completed' ? 'completed' : formatted.status === 'failed' ? 'failed' : formatted.status === 'cancelled' ? 'cancelled' : formatted.status === 'retrying' ? 'retrying' : 'progress',
         ...formatted
       });
     } catch (err) {

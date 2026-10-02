@@ -55,6 +55,18 @@ export const jobService = {
   },
 
   /**
+   * Retry a failed, cancelled, or completed job
+   * @param {string} jobId
+   * @returns {Promise<Object>}
+   */
+  async retryJob(jobId) {
+    const res = await fetch(`${API_BASE_URL}/jobs/${jobId}/retry`, {
+      method: 'POST',
+    });
+    return await handleApiResponse(res);
+  },
+
+  /**
    * Get all ETL jobs, optionally filtered by datasetId
    * @param {string} [datasetId]
    * @returns {Promise<Object>}

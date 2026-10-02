@@ -6,6 +6,7 @@ import { jobService } from '../services/jobService';
 export const JOB_STATUS = {
   IDLE: 'idle',        // Frontend-only: no job started yet
   QUEUED: 'queued',
+  RETRYING: 'retrying',
   PROCESSING: 'processing',
   COMPLETED: 'completed',
   FAILED: 'failed',
@@ -24,10 +25,27 @@ const MAX_RECONNECT_ATTEMPTS = 5;
  * Merges incoming job updates into previous state while guaranteeing that
  * progress percentages, processed counts, and metrics NEVER reset backwards
  * or revert to 0 on reconnect or partial payload delivery.
+ * If incoming status is RETRYING, metrics are properly reset for the new attempt.
  */
 function mergeJobData(prev, incoming) {
   if (!incoming) return prev;
   if (!prev) return incoming;
+
+  if (incoming.status === JOB_STATUS.RETRYING) {
+    return {
+      ...prev,
+      ...incoming,
+      status: JOB_STATUS.RETRYING,
+      processedRows: 0,
+      successfulRows: 0,
+      failedRows: 0,
+      progressPercent: 0,
+      rowsPerSecond: 0,
+      errors: [],
+      error: null,
+      completedAt: null
+    };
+  }
 
   const prevProgress = Number(prev.progressPercent ?? 0);
   const incomingProgress = Number(incoming.progressPercent ?? 0);
@@ -329,6 +347,40 @@ export function useProcessingJob() {
     }
   }, []);
 
+  // ── Retry a failed, cancelled, or completed job ───────────────────────────
+  const retryJob = useCallback(async (targetJobId) => {
+    const jId = targetJobId || currentJobIdRef.current;
+    if (!jId) throw new Error('No job ID to retry');
+
+    setStatus(JOB_STATUS.RETRYING);
+    setJobData(prev => ({
+      ...(prev || {}),
+      status: JOB_STATUS.RETRYING,
+      processedRows: 0,
+      successfulRows: 0,
+      failedRows: 0,
+      progressPercent: 0,
+      rowsPerSecond: 0,
+      errors: [],
+      error: null,
+      completedAt: null
+    }));
+
+    // Ensure connection is active
+    connectWebSocket(jId);
+    clearInterval(pollTimerRef.current);
+    pollTimerRef.current = setInterval(() => pollJobStatus(jId), 3000);
+
+    const res = await jobService.retryJob(jId);
+    if (res?.job) {
+      setJobData(prev => mergeJobData(prev, res.job));
+      if (res.job.status) {
+        setStatus(res.job.status);
+      }
+    }
+    return res;
+  }, [connectWebSocket, pollJobStatus]);
+
   // ── Reset to idle state ─────────────────────────────────────────────────────
   const reset = useCallback(() => {
     currentJobIdRef.current = null;
@@ -393,8 +445,9 @@ export function useProcessingJob() {
     startJob,
     attachJob,
     cancelJob,
+    retryJob,
     reset,
-    isRunning: status === JOB_STATUS.PROCESSING || status === JOB_STATUS.QUEUED,
+    isRunning: status === JOB_STATUS.PROCESSING || status === JOB_STATUS.QUEUED || status === JOB_STATUS.RETRYING,
     isTerminal: TERMINAL_STATUSES.has(status),
   };
 }

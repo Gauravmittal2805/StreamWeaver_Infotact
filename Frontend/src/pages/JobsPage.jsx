@@ -14,7 +14,12 @@ import {
   AlertTriangle,
   RotateCcw,
   ExternalLink,
-  Eye
+  Eye,
+  Copy,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Activity
 } from 'lucide-react';
 import Card, { CardBody } from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -28,6 +33,7 @@ import { formatDate, formatNumber, formatDuration } from '../utils/formatters';
 
 const STATUS_CONFIG = {
   [JOB_STATUS.QUEUED]: { label: 'Queued', badge: 'warning' },
+  [JOB_STATUS.RETRYING]: { label: 'Retrying', badge: 'warning' },
   [JOB_STATUS.PROCESSING]: { label: 'Processing', badge: 'purple' },
   [JOB_STATUS.COMPLETED]: { label: 'Completed', badge: 'success' },
   [JOB_STATUS.FAILED]: { label: 'Failed', badge: 'danger' },
@@ -40,10 +46,18 @@ export function JobsPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [copiedId, setCopiedId] = useState(null);
 
-  // Cancel action state
+  // Modals & Action States
   const [cancelingJobId, setCancelingJobId] = useState(null);
   const [cancelLoading, setCancelLoading] = useState(false);
+  const [retryingJob, setRetryingJob] = useState(null);
+  const [retryLoading, setRetryLoading] = useState(false);
+  const [retryError, setRetryError] = useState(null);
+
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // Fetch jobs from backend
   const fetchJobs = useCallback(async () => {
@@ -68,12 +82,17 @@ export function JobsPage() {
 
   useEffect(() => {
     fetchJobs();
-    // Poll every 5s if there are running jobs
     const interval = setInterval(fetchJobs, 5000);
     return () => clearInterval(interval);
   }, [fetchJobs]);
 
-  // Handle Cancel
+  const handleCopyId = (id) => {
+    navigator.clipboard.writeText(id);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  // Handle Cancel (Requirement 7)
   const handleConfirmCancel = async () => {
     if (!cancelingJobId) return;
     setCancelLoading(true);
@@ -88,16 +107,19 @@ export function JobsPage() {
     }
   };
 
-  // Handle Retry
-  const handleRetryJob = async (job) => {
-    if (!job?.datasetId) return;
+  // Handle Retry (Requirement 6)
+  const handleConfirmRetry = async () => {
+    if (!retryingJob) return;
+    setRetryLoading(true);
+    setRetryError(null);
     try {
-      const res = await jobService.createJob({ datasetId: job.datasetId, autoStart: true });
-      if (res?.job?.jobId) {
-        navigate(`/processing/${res.job.jobId}`);
-      }
+      await jobService.retryJob(retryingJob.jobId);
+      setRetryingJob(null);
+      navigate(`/processing/${retryingJob.jobId}`);
     } catch (err) {
-      alert(err.message || 'Failed to retry job');
+      setRetryError(err.message || 'Failed to retry job');
+    } finally {
+      setRetryLoading(false);
     }
   };
 
@@ -113,15 +135,22 @@ export function JobsPage() {
     });
   }, [jobs, statusFilter, searchTerm]);
 
+  // Pagination calculation
+  const totalPages = Math.max(1, Math.ceil(filteredJobs.length / pageSize));
+  const validCurrentPage = Math.min(currentPage, totalPages);
+  const startIndex = (validCurrentPage - 1) * pageSize;
+  const paginatedJobs = filteredJobs.slice(startIndex, startIndex + pageSize);
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-12 animate-in fade-in duration-200">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2.5">
+            <Activity className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
             ETL Processing Jobs
-          </h2>
-          <p className="text-sm text-slate-500 mt-0.5">
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">
             Monitor real-time worker execution streams, throughput, and error diagnostics.
           </p>
         </div>
@@ -133,6 +162,7 @@ export function JobsPage() {
             leftIcon={RefreshCw}
             isLoading={loading}
             onClick={fetchJobs}
+            className="text-xs"
           >
             Refresh
           </Button>
@@ -141,6 +171,7 @@ export function JobsPage() {
               variant="primary"
               size="sm"
               leftIcon={Play}
+              className="text-xs shadow-xs"
             >
               Start New Job
             </Button>
@@ -156,7 +187,10 @@ export function JobsPage() {
             type="text"
             placeholder="Search by Job ID or Dataset…"
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setCurrentPage(1);
+            }}
             className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-colors"
           />
         </div>
@@ -165,7 +199,10 @@ export function JobsPage() {
           <Filter className="w-4 h-4 text-slate-400" />
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(e) => {
+              setStatusFilter(e.target.value);
+              setCurrentPage(1);
+            }}
             className="text-xs py-2 pl-3 pr-8 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
           >
             <option value="ALL">All Statuses ({jobs.length})</option>
@@ -181,20 +218,43 @@ export function JobsPage() {
       {/* Jobs Table */}
       <Card>
         <CardBody className="p-0">
-          {jobs.length === 0 ? (
-            <div className="p-8">
-              <EmptyState
-                title="No active ETL processing jobs"
-                description="No real worker streams are running or completed yet. Upload a dataset and click Start Processing."
-                icon={Cpu}
-                action={
-                  <Link to="/upload">
-                    <Button variant="primary" size="sm" leftIcon={Play}>
-                      Upload Dataset
-                    </Button>
-                  </Link>
-                }
-              />
+          {loading && jobs.length === 0 ? (
+            <div className="p-6 space-y-4">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="flex items-center justify-between gap-4 py-3 border-b border-slate-100 dark:border-slate-800 animate-pulse">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-slate-200 dark:bg-slate-800" />
+                    <div className="space-y-1.5">
+                      <div className="h-4 w-32 bg-slate-200 dark:bg-slate-800 rounded" />
+                      <div className="h-3 w-20 bg-slate-100 dark:bg-slate-800/60 rounded" />
+                    </div>
+                  </div>
+                  <div className="h-4 w-20 bg-slate-200 dark:bg-slate-800 rounded" />
+                  <div className="h-4 w-24 bg-slate-200 dark:bg-slate-800 rounded" />
+                  <div className="h-4 w-16 bg-slate-200 dark:bg-slate-800 rounded" />
+                </div>
+              ))}
+            </div>
+          ) : jobs.length === 0 ? (
+            <div className="p-10 text-center max-w-md mx-auto space-y-4">
+              <div className="w-16 h-16 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mx-auto border border-indigo-100 dark:border-indigo-800">
+                <Cpu className="w-8 h-8" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                  No active ETL processing jobs
+                </h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  No real worker streams are running or completed yet. Upload a dataset and click Start Processing.
+                </p>
+              </div>
+              <div className="pt-2">
+                <Link to="/upload">
+                  <Button variant="primary" size="sm" leftIcon={Play}>
+                    Upload Dataset
+                  </Button>
+                </Link>
+              </div>
             </div>
           ) : filteredJobs.length === 0 ? (
             <div className="p-8 text-center text-sm text-slate-500">
@@ -215,9 +275,9 @@ export function JobsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-normal">
-                  {filteredJobs.map((job) => {
+                  {paginatedJobs.map((job) => {
                     const cfg = STATUS_CONFIG[job.status] || STATUS_CONFIG[JOB_STATUS.QUEUED];
-                    const isRunning = job.status === JOB_STATUS.PROCESSING || job.status === JOB_STATUS.QUEUED;
+                    const isRunning = job.status === JOB_STATUS.PROCESSING || job.status === JOB_STATUS.QUEUED || job.status === JOB_STATUS.RETRYING;
                     const canCancel = isRunning;
                     const canRetry = job.status === JOB_STATUS.FAILED || job.status === JOB_STATUS.CANCELLED || job.status === JOB_STATUS.COMPLETED;
                     const hasErrors = (job.failedRows > 0) || (job.errors && job.errors.length > 0);
@@ -247,9 +307,17 @@ export function JobsPage() {
                               >
                                 {job.datasetId}
                               </Link>
-                              <p className="text-[11px] text-slate-400 font-mono mt-0.5">
-                                ID: {job.jobId}
-                              </p>
+                              <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-mono mt-0.5">
+                                <span>{job.jobId}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyId(job.jobId)}
+                                  className="text-slate-400 hover:text-indigo-600 p-0.5"
+                                  title="Copy Job ID"
+                                >
+                                  {copiedId === job.jobId ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                                </button>
+                              </div>
                             </div>
                           </div>
                         </td>
@@ -293,7 +361,7 @@ export function JobsPage() {
                         </td>
 
                         {/* Throughput */}
-                        <td className="py-4 px-4 font-mono text-xs text-purple-600 dark:text-purple-400">
+                        <td className="py-4 px-4 font-mono text-xs text-purple-600 dark:text-purple-400 font-semibold">
                           {formatNumber(job.rowsPerSecond || 0)} r/s
                         </td>
 
@@ -302,7 +370,7 @@ export function JobsPage() {
                           {durationStr}
                         </td>
 
-                        {/* Actions (Step 7) */}
+                        {/* Actions */}
                         <td className="py-4 px-6 text-right">
                           <div className="flex items-center justify-end gap-1.5 flex-wrap">
                             {/* View Details */}
@@ -347,7 +415,7 @@ export function JobsPage() {
                               </Link>
                             )}
 
-                            {/* Cancel */}
+                            {/* Cancel (Requirement 7) */}
                             {canCancel && (
                               <Button
                                 variant="outline"
@@ -361,13 +429,13 @@ export function JobsPage() {
                               </Button>
                             )}
 
-                            {/* Retry */}
+                            {/* Retry (Requirement 6) */}
                             {canRetry && (
                               <Button
                                 variant="outline"
                                 size="sm"
                                 leftIcon={RotateCcw}
-                                onClick={() => handleRetryJob(job)}
+                                onClick={() => setRetryingJob(job)}
                                 className="px-2"
                                 title="Retry Job"
                               >
@@ -386,12 +454,64 @@ export function JobsPage() {
         </CardBody>
       </Card>
 
-      {/* Cancel Modal */}
+      {/* Pagination */}
+      {filteredJobs.length > 0 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
+          <div>
+            Showing <strong className="text-slate-800 dark:text-slate-200">{startIndex + 1}</strong> to{' '}
+            <strong className="text-slate-800 dark:text-slate-200">
+              {Math.min(startIndex + pageSize, filteredJobs.length)}
+            </strong>{' '}
+            of <strong className="text-slate-800 dark:text-slate-200">{formatNumber(filteredJobs.length)}</strong> jobs
+          </div>
+
+          <div className="flex items-center gap-2">
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="py-1 px-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 text-xs"
+            >
+              <option value={10}>10 / page</option>
+              <option value={25}>25 / page</option>
+              <option value={50}>50 / page</option>
+            </select>
+
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={validCurrentPage <= 1}
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                className="px-2"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </Button>
+              <span className="px-2 font-mono">
+                {validCurrentPage} / {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={validCurrentPage >= totalPages}
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                className="px-2"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Modal (Requirement 7) */}
       <Modal
         isOpen={Boolean(cancelingJobId)}
         onClose={() => setCancelingJobId(null)}
         title="Cancel Job Processing?"
-        description={`Are you sure you want to stop job ${cancelingJobId}?`}
+        description={`Are you sure you want to stop processing job ${cancelingJobId}?`}
       >
         <div className="flex items-center justify-end gap-3 mt-4">
           <Button variant="outline" onClick={() => setCancelingJobId(null)}>
@@ -404,6 +524,33 @@ export function JobsPage() {
             onClick={handleConfirmCancel}
           >
             Cancel Job
+          </Button>
+        </div>
+      </Modal>
+
+      {/* Retry Modal (Requirement 6) */}
+      <Modal
+        isOpen={Boolean(retryingJob)}
+        onClose={() => { setRetryingJob(null); setRetryError(null); }}
+        title="Retry Processing Job?"
+        description={`Are you sure you want to retry job ${retryingJob?.jobId}? This will re-initialize worker stream processing.`}
+      >
+        {retryError && (
+          <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 mb-3">
+            {retryError}
+          </div>
+        )}
+        <div className="flex items-center justify-end gap-3 mt-4">
+          <Button variant="outline" onClick={() => { setRetryingJob(null); setRetryError(null); }}>
+            Dismiss
+          </Button>
+          <Button
+            variant="primary"
+            leftIcon={RotateCcw}
+            isLoading={retryLoading}
+            onClick={handleConfirmRetry}
+          >
+            Retry Job
           </Button>
         </div>
       </Modal>

@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import {
   CheckCircle2, AlertCircle, XCircle, Zap, Clock,
   RefreshCw, Ban, ArrowLeft, RotateCcw, Database,
   AlertTriangle, Activity, Wifi, WifiOff, Copy, Check,
-  ExternalLink, Layers
+  ExternalLink, Layers, Sparkles, Server, FileSpreadsheet,
+  FileCode, Play, ShieldAlert
 } from 'lucide-react';
 import { useProcessingJob, JOB_STATUS } from '../hooks/useProcessingJob';
 import { fileService } from '../services/fileService';
@@ -15,6 +16,7 @@ import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import FailedRecordsTable from '../components/processing/FailedRecordsTable';
+import LivePerformanceCharts from '../components/processing/LivePerformanceCharts';
 import ProcessingCompletionScreen from '../components/processing/ProcessingCompletionScreen';
 import ProcessingFailureScreen from '../components/processing/ProcessingFailureScreen';
 
@@ -22,6 +24,13 @@ import ProcessingFailureScreen from '../components/processing/ProcessingFailureS
 const STATUS_CONFIG = {
   [JOB_STATUS.QUEUED]: {
     label: 'Queued',
+    color: 'text-amber-600 dark:text-amber-400',
+    bg: 'bg-amber-50 dark:bg-amber-950/40',
+    border: 'border-amber-200 dark:border-amber-800',
+    badgeVariant: 'warning',
+  },
+  [JOB_STATUS.RETRYING]: {
+    label: 'Retrying',
     color: 'text-amber-600 dark:text-amber-400',
     bg: 'bg-amber-50 dark:bg-amber-950/40',
     border: 'border-amber-200 dark:border-amber-800',
@@ -64,16 +73,75 @@ function ElapsedTimer({ startedAt, completedAt }) {
   useEffect(() => {
     if (!startedAt) return;
     if (completedAt) {
-      setElapsed(Math.round((new Date(completedAt) - new Date(startedAt)) / 1000));
+      setElapsed(Math.max(1, Math.round((new Date(completedAt) - new Date(startedAt)) / 1000)));
       return;
     }
     const interval = setInterval(() => {
-      setElapsed(Math.round((Date.now() - new Date(startedAt).getTime()) / 1000));
+      setElapsed(Math.max(1, Math.round((Date.now() - new Date(startedAt).getTime()) / 1000)));
     }, 1000);
     return () => clearInterval(interval);
   }, [startedAt, completedAt]);
 
   return <span>{formatDuration(elapsed)}</span>;
+}
+
+// ─── Pipeline Stage Stepper ───────────────────────────────────────────────────
+function PipelineStageStepper({ currentStage, status }) {
+  const stages = [
+    { id: 'ingest', name: 'File Ingestion' },
+    { id: 'parse', name: 'Parser Stream' },
+    { id: 'transform', name: 'Field Transform' },
+    { id: 'buffer', name: 'Bulk Database Buffer' },
+    { id: 'finalize', name: 'Integrity Check' },
+  ];
+
+  const getStageStatus = (stageId, index) => {
+    if (status === JOB_STATUS.COMPLETED) return 'completed';
+    if (status === JOB_STATUS.FAILED && currentStage.id === stageId) return 'failed';
+    if (status === JOB_STATUS.CANCELLED && currentStage.id === stageId) return 'cancelled';
+
+    const currentIndex = stages.findIndex(s => s.id === currentStage.id);
+    if (index < currentIndex) return 'completed';
+    if (index === currentIndex) return 'active';
+    return 'pending';
+  };
+
+  return (
+    <div className="py-2 overflow-x-auto custom-scrollbar">
+      <div className="flex items-center min-w-[620px] gap-2">
+        {stages.map((stg, idx) => {
+          const st = getStageStatus(stg.id, idx);
+          return (
+            <React.Fragment key={stg.id}>
+              <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold shrink-0 transition-colors ${
+                st === 'completed'
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
+                  : st === 'active'
+                  ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 ring-2 ring-indigo-200 dark:ring-indigo-800/50'
+                  : st === 'failed'
+                  ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300'
+                  : st === 'cancelled'
+                  ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
+                  : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500'
+              }`}>
+                {st === 'completed' && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />}
+                {st === 'active' && <RefreshCw className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 animate-spin shrink-0" />}
+                {st === 'failed' && <XCircle className="w-3.5 h-3.5 text-rose-500 shrink-0" />}
+                {st === 'cancelled' && <Ban className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
+                {st === 'pending' && <span className="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600 shrink-0" />}
+                <span>{stg.name}</span>
+              </div>
+              {idx < stages.length - 1 && (
+                <div className={`h-0.5 w-4 shrink-0 ${
+                  st === 'completed' ? 'bg-emerald-300 dark:bg-emerald-700' : 'bg-slate-200 dark:border-slate-700'
+                }`} />
+              )}
+            </React.Fragment>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 // ─── Main Processing Dashboard Page ──────────────────────────────────────────
@@ -82,11 +150,14 @@ export function ProcessingDashboardPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
+  // Dialog and error states
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [showRetryModal, setShowRetryModal] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
   const [cancelError, setCancelError] = useState(null);
   const [retryLoading, setRetryLoading] = useState(false);
+  const [retryError, setRetryError] = useState(null);
   const [copiedJobId, setCopiedJobId] = useState(false);
   const [datasetMeta, setDatasetMeta] = useState(null);
 
@@ -99,7 +170,7 @@ export function ProcessingDashboardPage() {
   const {
     jobId, jobData, status, wsStatus,
     reconnectAttempt, maxReconnectAttempts, reconnectNow,
-    attachJob, cancelJob, isRunning, isTerminal
+    attachJob, cancelJob, retryJob, isRunning, isTerminal
   } = useProcessingJob();
 
   // On mount: attach to existing job from URL param
@@ -145,27 +216,24 @@ export function ProcessingDashboardPage() {
     }
   }, [cancelJob]);
 
-  // Step 7: Retry Action
-  const handleRetry = useCallback(async () => {
-    const dsId = jobData?.datasetId;
-    if (!dsId) {
-      alert('Unable to retry: source dataset ID is missing');
-      return;
-    }
+  // Step 6: Retry Action (Retrying → Processing → Completed/Failed)
+  const handleConfirmRetry = useCallback(async () => {
+    const targetId = jobId || routeJobId;
+    if (!targetId) return;
+
     setRetryLoading(true);
+    setRetryError(null);
     try {
-      const res = await jobService.createJob({ datasetId: dsId, autoStart: true });
-      if (res?.job?.jobId) {
-        navigate(`/processing/${res.job.jobId}?dataset=${encodeURIComponent(queryDataset || datasetMeta?.filename || 'Dataset')}`);
-      }
+      await retryJob(targetId);
+      setShowRetryModal(false);
     } catch (err) {
-      alert(err.message || 'Failed to retry job');
+      setRetryError(err.message || 'Failed to retry job');
     } finally {
       setRetryLoading(false);
     }
-  }, [jobData?.datasetId, navigate, queryDataset, datasetMeta]);
+  }, [jobId, routeJobId, retryJob]);
 
-  // Derive metrics from jobData (Guaranteed never to reset backwards or zero out)
+  // Derive metrics from jobData (Guaranteed never to reset backwards or zero out on reconnect)
   const progress = Number(jobData?.progressPercent ?? 0);
   const processedRows = Number(jobData?.processedRows ?? 0);
   const totalRows = Number(jobData?.totalRows ?? 0);
@@ -181,7 +249,18 @@ export function ProcessingDashboardPage() {
     ? ((successfulRows / processedRows) * 100).toFixed(1)
     : null;
 
-  // Step 4: Reconnection indicator states
+  // Determine current ETL processing stage
+  const currentStage = useMemo(() => {
+    if (status === JOB_STATUS.QUEUED) return { id: 'ingest', name: 'File Ingestion' };
+    if (status === JOB_STATUS.RETRYING) return { id: 'ingest', name: 'Re-allocating Stream' };
+    if (status === JOB_STATUS.COMPLETED) return { id: 'finalize', name: 'Final Verification' };
+    if (progress < 25) return { id: 'parse', name: 'Parser Stream' };
+    if (progress < 70) return { id: 'transform', name: 'Field Transform' };
+    if (progress < 95) return { id: 'buffer', name: 'Bulk Database Buffer' };
+    return { id: 'finalize', name: 'Final Verification' };
+  }, [status, progress]);
+
+  // Step 8: Connection states
   const isWebSocketDisconnected = wsStatus === 'disconnected';
   const isWebSocketReconnecting = wsStatus === 'reconnecting';
   const isWebSocketConnected = wsStatus === 'connected';
@@ -189,13 +268,16 @@ export function ProcessingDashboardPage() {
   // ── No job context yet (loading) ───────────────────────────────────────────
   if (status === JOB_STATUS.IDLE) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center space-y-4">
-          <div className="w-12 h-12 rounded-full border-4 border-slate-200 border-t-indigo-600 animate-spin mx-auto" />
+      <div className="flex items-center justify-center min-h-[450px]">
+        <div className="text-center space-y-4 max-w-sm mx-auto p-6">
+          <div className="w-12 h-12 rounded-2xl border-4 border-slate-200 border-t-indigo-600 animate-spin mx-auto" />
           <div>
-            <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">Connecting to ETL Engine…</h3>
-            <p className="text-sm text-slate-500 mt-1 font-mono">Job {routeJobId}</p>
+            <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">Connecting to ETL Stream Engine…</h3>
+            <p className="text-xs text-slate-500 mt-1 font-mono">Job {routeJobId}</p>
           </div>
+          <p className="text-xs text-slate-400">
+            Establishing WebSocket connection and synchronizing latest batch state.
+          </p>
         </div>
       </div>
     );
@@ -204,31 +286,31 @@ export function ProcessingDashboardPage() {
   return (
     <div className="space-y-5 pb-12 animate-in fade-in duration-200">
 
-      {/* ── Page Header & Nav ─────────────────────────────────────────────────── */}
+      {/* ── Top Bar: Navigation & Live WebSocket Indicator ──────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <Button
           variant="ghost"
           size="sm"
           leftIcon={ArrowLeft}
           onClick={() => navigate('/jobs')}
-          className="text-slate-600 hover:text-slate-900 self-start"
+          className="text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 self-start"
         >
           All Jobs
         </Button>
 
         <div className="flex items-center gap-3 text-xs flex-wrap">
-          {/* Connection Status Badge (Step 4) */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+          {/* WebSocket Connection Indicator (Requirement 8) */}
+          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
             {isWebSocketConnected && (
               <>
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="font-medium text-[11px]">Live WebSocket</span>
+                <span className="font-semibold text-[11px] text-emerald-700 dark:text-emerald-400">Connected</span>
               </>
             )}
             {isWebSocketReconnecting && (
               <>
                 <RefreshCw className="w-3 h-3 text-amber-500 animate-spin" />
-                <span className="font-medium text-[11px] text-amber-600 dark:text-amber-400">
+                <span className="font-semibold text-[11px] text-amber-600 dark:text-amber-400">
                   Reconnecting ({reconnectAttempt}/{maxReconnectAttempts})
                 </span>
               </>
@@ -236,25 +318,25 @@ export function ProcessingDashboardPage() {
             {isWebSocketDisconnected && (
               <>
                 <WifiOff className="w-3 h-3 text-slate-400" />
-                <span className="font-medium text-[11px] text-slate-500">Polling Active</span>
+                <span className="font-medium text-[11px] text-slate-500">Disconnected (Polling Active)</span>
               </>
             )}
           </div>
 
           {/* Job ID with Copy */}
-          <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-xl font-mono text-slate-700 dark:text-slate-300 text-[11px]">
+          <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-xl font-mono text-slate-700 dark:text-slate-300 text-[11px] border border-slate-200 dark:border-slate-700">
             <span>ID: {jobId || routeJobId || '—'}</span>
             <button
               type="button"
               onClick={handleCopyId}
-              className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+              className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors p-0.5"
               title="Copy Job ID"
             >
-              {copiedJobId ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+              {copiedJobId ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
             </button>
           </div>
 
-          {/* View Details Link (Step 7) */}
+          {/* View Details Link */}
           <Link
             to={`/jobs/${jobId || routeJobId}`}
             className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 hover:underline font-semibold"
@@ -264,17 +346,17 @@ export function ProcessingDashboardPage() {
         </div>
       </div>
 
-      {/* ── WebSocket Reconnection Banner (Step 4) ───────────────────────────── */}
+      {/* ── WebSocket Reconnection Alert Banner (Requirement 8) ─────────────── */}
       {isRunning && (isWebSocketDisconnected || isWebSocketReconnecting) && (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs">
           <div className="flex items-center gap-2.5">
             <RefreshCw className="w-4 h-4 text-amber-600 dark:text-amber-400 animate-spin flex-shrink-0" />
             <div>
               <p className="font-semibold text-amber-800 dark:text-amber-200">
-                Connection interrupted. Reconnecting (attempt {reconnectAttempt}/{maxReconnectAttempts})…
+                WebSocket connection interrupted. Reconnecting (attempt {reconnectAttempt}/{maxReconnectAttempts})…
               </p>
               <p className="text-amber-700 dark:text-amber-300 text-[11px] mt-0.5">
-                Current progress is preserved and real-time updates will resume immediately upon reconnection.
+                Dashboard status is synchronized via REST and progress is fully preserved.
               </p>
             </div>
           </div>
@@ -289,119 +371,146 @@ export function ProcessingDashboardPage() {
         </div>
       )}
 
-      {/* ── Status Header Card (Step 2) ───────────────────────────────────────── */}
-      <Card className={`p-5 border ${statusConfig.border} ${statusConfig.bg}`}>
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div className={`w-12 h-12 rounded-2xl border flex items-center justify-center ${statusConfig.border} bg-white dark:bg-slate-900 shadow-sm`}>
-              {status === JOB_STATUS.PROCESSING && <Zap className={`w-6 h-6 ${statusConfig.color} animate-pulse`} />}
-              {status === JOB_STATUS.QUEUED && <Clock className={`w-6 h-6 ${statusConfig.color}`} />}
-              {status === JOB_STATUS.COMPLETED && <CheckCircle2 className={`w-6 h-6 ${statusConfig.color}`} />}
-              {status === JOB_STATUS.FAILED && <XCircle className={`w-6 h-6 ${statusConfig.color}`} />}
-              {status === JOB_STATUS.CANCELLED && <Ban className={`w-6 h-6 ${statusConfig.color}`} />}
+      {/* ── Enterprise ETL Header Card (Requirement 1) ──────────────────────── */}
+      <Card className={`p-6 border ${statusConfig.border} ${statusConfig.bg}`}>
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+          <div className="flex items-start gap-4">
+            <div className={`w-14 h-14 rounded-2xl border flex items-center justify-center ${statusConfig.border} bg-white dark:bg-slate-900 shadow-sm shrink-0`}>
+              {status === JOB_STATUS.PROCESSING && <Zap className={`w-7 h-7 ${statusConfig.color} animate-pulse`} />}
+              {status === JOB_STATUS.QUEUED && <Clock className={`w-7 h-7 ${statusConfig.color}`} />}
+              {status === JOB_STATUS.RETRYING && <RefreshCw className={`w-7 h-7 ${statusConfig.color} animate-spin`} />}
+              {status === JOB_STATUS.COMPLETED && <CheckCircle2 className={`w-7 h-7 ${statusConfig.color}`} />}
+              {status === JOB_STATUS.FAILED && <XCircle className={`w-7 h-7 ${statusConfig.color}`} />}
+              {status === JOB_STATUS.CANCELLED && <Ban className={`w-7 h-7 ${statusConfig.color}`} />}
             </div>
-            <div>
+
+            <div className="space-y-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                  {status === JOB_STATUS.PROCESSING && 'Processing Stream…'}
-                  {status === JOB_STATUS.QUEUED && 'Job Queued'}
-                  {status === JOB_STATUS.COMPLETED && '✓ Processing Completed'}
-                  {status === JOB_STATUS.FAILED && 'Processing Failed'}
-                  {status === JOB_STATUS.CANCELLED && 'Processing Cancelled'}
-                </h2>
+                <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+                  {status === JOB_STATUS.PROCESSING && 'Stream Pipeline In Progress'}
+                  {status === JOB_STATUS.QUEUED && 'Pipeline Job Queued'}
+                  {status === JOB_STATUS.RETRYING && 'Retrying Pipeline Execution…'}
+                  {status === JOB_STATUS.COMPLETED && '✓ Processing Completed Successfully'}
+                  {status === JOB_STATUS.FAILED && 'Pipeline Processing Failed'}
+                  {status === JOB_STATUS.CANCELLED && 'Processing Cancelled by User'}
+                </h1>
                 <Badge variant={statusConfig.badgeVariant} size="sm">
                   {statusConfig.label.toUpperCase()}
                 </Badge>
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Dataset: <strong className="text-slate-700 dark:text-slate-300">{datasetDisplayName}</strong>
+
+              <div className="flex items-center gap-3 text-xs text-slate-600 dark:text-slate-400 flex-wrap">
+                <span>
+                  Dataset: <strong className="text-slate-900 dark:text-slate-100 font-semibold">{datasetDisplayName}</strong>
+                </span>
+                <span className="text-slate-300 dark:text-slate-700">•</span>
+                <span>
+                  Stage: <strong className="text-indigo-600 dark:text-indigo-400 font-semibold">{currentStage.name}</strong>
+                </span>
                 {jobData?.startedAt && (
-                  <> · Duration: <ElapsedTimer startedAt={jobData.startedAt} completedAt={jobData?.completedAt} /></>
+                  <>
+                    <span className="text-slate-300 dark:text-slate-700">•</span>
+                    <span>
+                      Elapsed: <strong className="text-slate-900 dark:text-slate-100 font-mono"><ElapsedTimer startedAt={jobData.startedAt} completedAt={jobData?.completedAt} /></strong>
+                    </span>
+                  </>
                 )}
-              </p>
+              </div>
             </div>
           </div>
 
-          {/* Action buttons (Step 7) */}
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* View Details Action */}
-            <Link to={`/jobs/${jobId || routeJobId}`}>
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-xs"
-              >
-                View Details
-              </Button>
-            </Link>
-
-            {/* Cancel Action (Only when queued or processing) */}
+          {/* Action buttons (Requirements 6 & 7) */}
+          <div className="flex items-center gap-2 flex-wrap self-end lg:self-auto">
+            {/* Cancel Action (Only when queued, retrying, or processing) */}
             {isRunning && (
               <Button
                 variant="outline"
                 size="sm"
                 leftIcon={Ban}
                 onClick={() => setShowCancelModal(true)}
-                className="border-rose-200 text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-xs"
+                className="border-rose-200 text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-xs font-semibold"
               >
-                Cancel Processing
+                Cancel Job
               </Button>
             )}
 
-            {/* Retry Action (Enabled when failed, completed, or cancelled) */}
+            {/* Retry Action (When failed, cancelled, or completed) */}
             {isTerminal && (
               <Button
                 variant="primary"
                 size="sm"
                 leftIcon={RotateCcw}
                 isLoading={retryLoading}
-                onClick={handleRetry}
-                className="text-xs"
+                onClick={() => setShowRetryModal(true)}
+                className="text-xs font-semibold shadow-xs"
               >
                 Retry Job
               </Button>
             )}
 
-            {/* View Errors Action */}
+            {/* View Errors Button */}
             {(errors.length > 0 || failedRows > 0) && (
               <Button
                 variant="outline"
                 size="sm"
                 leftIcon={AlertTriangle}
                 onClick={() => setShowErrorModal(true)}
-                className="border-rose-200 text-rose-700 dark:text-rose-400 hover:bg-rose-50 text-xs"
+                className="border-rose-200 text-rose-700 dark:text-rose-400 hover:bg-rose-50 text-xs font-semibold"
               >
-                View Errors ({formatNumber(errors.length || failedRows)})
+                Errors ({formatNumber(errors.length || failedRows)})
               </Button>
             )}
           </div>
         </div>
+
+        {/* Pipeline Stage Stepper */}
+        <div className="mt-5 pt-4 border-t border-slate-200/60 dark:border-slate-700/60">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+            Current Processing Stage
+          </div>
+          <PipelineStageStepper currentStage={currentStage} status={status} />
+        </div>
       </Card>
 
-      {/* ── QUEUED State ─────────────────────────────────────────────────────── */}
-      {status === JOB_STATUS.QUEUED && (
-        <Card className="p-8 text-center">
-          <div className="space-y-4 max-w-sm mx-auto">
-            <div className="w-12 h-12 rounded-full border-4 border-amber-300 border-t-amber-600 animate-spin mx-auto" />
-            <div>
-              <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">Waiting in Pipeline Queue</h3>
-              <p className="text-xs text-slate-500 mt-1">
-                Your job has been queued and stream allocation is initializing.
-              </p>
-            </div>
+      {/* ── RETRYING State Banner (Requirement 6) ────────────────────────────── */}
+      {status === JOB_STATUS.RETRYING && (
+        <Card className="p-6 text-center border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20">
+          <div className="space-y-3 max-w-md mx-auto">
+            <RefreshCw className="w-10 h-10 text-amber-600 animate-spin mx-auto" />
+            <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+              Retrying Stream Execution…
+            </h3>
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              Resetting pipeline metrics and reconnecting streaming parser. Live progress updates will resume shortly.
+            </p>
           </div>
         </Card>
       )}
 
-      {/* ── PROCESSING State: Progress bar + Live metrics (Step 2 & Step 3) ───── */}
-      {status === JOB_STATUS.PROCESSING && (
+      {/* ── QUEUED State Card ────────────────────────────────────────────────── */}
+      {status === JOB_STATUS.QUEUED && (
+        <Card className="p-8 text-center border-slate-200 dark:border-slate-800">
+          <div className="space-y-3 max-w-md mx-auto">
+            <div className="w-12 h-12 rounded-full border-4 border-amber-300 border-t-amber-600 animate-spin mx-auto" />
+            <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+              Waiting in Pipeline Execution Queue
+            </h3>
+            <p className="text-xs text-slate-500">
+              Stream worker allocation and schema mapping validation are initializing.
+            </p>
+          </div>
+        </Card>
+      )}
+
+      {/* ── PROCESSING State: Live KPIs & Progress Bar (Requirements 1 & 2) ─── */}
+      {(status === JOB_STATUS.PROCESSING || status === JOB_STATUS.RETRYING) && (
         <>
-          {/* Progress Card */}
+          {/* Progress Bar Card */}
           <Card className="p-5">
             <div className="space-y-3">
               <div className="flex items-center justify-between text-xs font-semibold">
                 <span className="text-slate-700 dark:text-slate-300">Live Pipeline Execution Progress</span>
-                <span className="font-mono text-indigo-600 dark:text-indigo-400 text-base font-bold">
+                <span className="font-mono text-indigo-600 dark:text-indigo-400 text-lg font-bold">
                   {progress}%
                 </span>
               </div>
@@ -418,7 +527,7 @@ export function ProcessingDashboardPage() {
 
               <div className="flex items-center justify-between text-xs text-slate-500 font-mono pt-0.5">
                 <span>
-                  <strong className="text-slate-800 dark:text-slate-200">{formatNumber(processedRows)}</strong>
+                  <strong className="text-slate-800 dark:text-slate-200 font-bold">{formatNumber(processedRows)}</strong>
                   {totalRows > 0 && <> / {formatNumber(totalRows)}</>} records streamed
                 </span>
                 <span className="text-indigo-600 dark:text-indigo-400 font-semibold">
@@ -428,38 +537,40 @@ export function ProcessingDashboardPage() {
             </div>
           </Card>
 
-          {/* Live Metrics Grid (Step 2 Required Displays) */}
+          {/* Metric KPI Cards (Requirement 1) */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Total Records */}
+            {/* Total Processed Rows */}
             <Card className="p-4">
               <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                Total Records
+                Processed Rows
               </div>
               <div className="text-2xl font-bold font-mono text-slate-900 dark:text-slate-100">
-                {totalRows > 0 ? formatNumber(totalRows) : formatNumber(processedRows)}
+                {formatNumber(processedRows)}
               </div>
-              <div className="text-[11px] text-slate-500 mt-1">{formatNumber(processedRows)} streamed</div>
+              <div className="text-[11px] text-slate-500 mt-1">
+                {totalRows > 0 ? `Target: ${formatNumber(totalRows)}` : 'Streaming continuously'}
+              </div>
             </Card>
 
-            {/* Successful */}
+            {/* Successful Rows */}
             <Card className="p-4">
               <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 mb-1 flex items-center gap-1">
                 <CheckCircle2 className="w-3 h-3" />
-                Successful Records
+                Successful Rows
               </div>
               <div className="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400">
                 {formatNumber(successfulRows)}
               </div>
               <div className="text-[11px] text-slate-500 mt-1">
-                {successRate ? `${successRate}% integrity` : 'Streaming…'}
+                {successRate ? `${successRate}% clean records` : 'Streaming…'}
               </div>
             </Card>
 
-            {/* Failed */}
+            {/* Failed Rows */}
             <Card className="p-4">
               <div className="text-[10px] font-bold uppercase tracking-wider text-rose-600 mb-1 flex items-center gap-1">
                 <AlertCircle className="w-3 h-3" />
-                Failed Records
+                Failed Rows
               </div>
               <div className="text-2xl font-bold font-mono text-rose-600 dark:text-rose-400">
                 {formatNumber(failedRows)}
@@ -481,7 +592,7 @@ export function ProcessingDashboardPage() {
             <Card className="p-4">
               <div className="text-[10px] font-bold uppercase tracking-wider text-purple-600 mb-1 flex items-center gap-1">
                 <Zap className="w-3 h-3" />
-                Speed (Rows/sec)
+                Rows / Second
               </div>
               <div className="text-2xl font-bold font-mono text-purple-600 dark:text-purple-400">
                 {formatNumber(rowsPerSecond)}
@@ -490,10 +601,54 @@ export function ProcessingDashboardPage() {
               <div className="text-[11px] text-slate-500 mt-1">Real-time throughput</div>
             </Card>
           </div>
+
+          {/* ── Live Performance Visualization Charts (Requirement 2) ─────────── */}
+          <LivePerformanceCharts
+            processedRows={processedRows}
+            totalRows={totalRows}
+            rowsPerSecond={rowsPerSecond}
+            successfulRows={successfulRows}
+            failedRows={failedRows}
+            progressPercent={progress}
+            status={status}
+          />
         </>
       )}
 
-      {/* ── COMPLETED State Screen (Step 8) ──────────────────────────────────── */}
+      {/* ── CANCELLED State (Requirement 7) ─────────────────────────────────── */}
+      {status === JOB_STATUS.CANCELLED && (
+        <Card className="p-8 text-center space-y-4 border-slate-200 dark:border-slate-800">
+          <div className="w-16 h-16 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto text-slate-500">
+            <Ban className="w-8 h-8" />
+          </div>
+          <div className="max-w-md mx-auto space-y-1">
+            <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100">
+              Pipeline Processing Cancelled
+            </h3>
+            <p className="text-sm text-slate-600 dark:text-slate-400">
+              The ETL processing stream was safely cancelled. A total of <strong className="font-mono text-slate-800 dark:text-slate-200">{formatNumber(processedRows)}</strong> records were processed prior to cancellation.
+            </p>
+          </div>
+
+          <div className="flex items-center justify-center gap-3 pt-2">
+            <Button
+              variant="primary"
+              leftIcon={RotateCcw}
+              onClick={() => setShowRetryModal(true)}
+              isLoading={retryLoading}
+            >
+              Process Again
+            </Button>
+            <Link to="/datasets">
+              <Button variant="outline">
+                All Datasets
+              </Button>
+            </Link>
+          </div>
+        </Card>
+      )}
+
+      {/* ── COMPLETED State Screen ───────────────────────────────────────────── */}
       {status === JOB_STATUS.COMPLETED && (
         <ProcessingCompletionScreen
           jobData={jobData}
@@ -505,47 +660,25 @@ export function ProcessingDashboardPage() {
         />
       )}
 
-      {/* ── FAILED State Screen (Step 9) ─────────────────────────────────────── */}
+      {/* ── FAILED State Screen (Requirement 6) ─────────────────────────────── */}
       {status === JOB_STATUS.FAILED && (
         <ProcessingFailureScreen
           jobData={jobData}
           jobId={jobId || routeJobId}
           datasetId={jobData?.datasetId}
           datasetName={datasetDisplayName}
-          onRetry={handleRetry}
+          onRetry={() => setShowRetryModal(true)}
           onViewErrors={() => setShowErrorModal(true)}
           retryLoading={retryLoading}
         />
       )}
 
-      {/* ── CANCELLED State Screen ───────────────────────────────────────────── */}
-      {status === JOB_STATUS.CANCELLED && (
-        <Card className="p-8 text-center space-y-4">
-          <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto text-slate-400">
-            <Ban className="w-8 h-8" />
-          </div>
-          <div>
-            <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100">Processing Cancelled</h3>
-            <p className="text-sm text-slate-500 mt-1">
-              The job was stopped. {formatNumber(successfulRows)} records were successfully committed.
-            </p>
-          </div>
-          <div className="flex items-center justify-center gap-3">
-            <Button variant="primary" leftIcon={RotateCcw} onClick={handleRetry} isLoading={retryLoading}>
-              Retry Job
-            </Button>
-            <Link to="/datasets">
-              <Button variant="outline">
-                All Datasets
-              </Button>
-            </Link>
-          </div>
-        </Card>
-      )}
-
       {/* ── Pipeline Configuration Summary Card ──────────────────────────────── */}
       <Card className="p-5">
-        <div className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-3">Pipeline Specifications</div>
+        <div className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-2">
+          <Layers className="w-4 h-4 text-indigo-500" />
+          ETL Specification Summary
+        </div>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           <div>
             <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide mb-1">Dataset</div>
@@ -574,14 +707,14 @@ export function ProcessingDashboardPage() {
         </div>
       </Card>
 
-      {/* ── Failed Records UI (Step 6) ────────────────────────────────────────── */}
+      {/* ── Embedded Failed Records Table (Requirement 5) ─────────────────────── */}
       {errors.length > 0 && (
         <Card className="p-5">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-rose-500" />
               <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide">
-                Failed Records
+                Failed Records Diagnostics
               </h3>
               <Badge variant="danger" size="sm">
                 {formatNumber(errors.length)}
@@ -597,12 +730,12 @@ export function ProcessingDashboardPage() {
         </Card>
       )}
 
-      {/* ── Cancel Confirmation Modal (Step 7) ─────────────────────────────────── */}
+      {/* ── Cancel Confirmation Modal (Requirement 7) ─────────────────────────── */}
       <Modal
         isOpen={showCancelModal}
         onClose={() => { setShowCancelModal(false); setCancelError(null); }}
-        title="Cancel Processing?"
-        description="This will stop the streaming ETL pipeline. Records already written will be preserved in the job history."
+        title="Cancel Job Processing?"
+        description="Are you sure you want to cancel this processing job? This will stop the streaming ETL pipeline. Records already written will be preserved."
       >
         {cancelError && (
           <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 mb-3">
@@ -619,12 +752,39 @@ export function ProcessingDashboardPage() {
             isLoading={cancelLoading}
             onClick={handleCancel}
           >
-            Cancel Processing
+            Cancel Job
           </Button>
         </div>
       </Modal>
 
-      {/* ── All Errors Modal (Step 6) ─────────────────────────────────────────── */}
+      {/* ── Retry Confirmation Modal (Requirement 6) ──────────────────────────── */}
+      <Modal
+        isOpen={showRetryModal}
+        onClose={() => { setShowRetryModal(false); setRetryError(null); }}
+        title="Retry Processing Job?"
+        description="Are you sure you want to retry this processing job? This will re-initialize the stream and process all records from the source dataset."
+      >
+        {retryError && (
+          <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 mb-3">
+            {retryError}
+          </div>
+        )}
+        <div className="flex items-center justify-end gap-3 mt-4">
+          <Button variant="outline" onClick={() => { setShowRetryModal(false); setRetryError(null); }}>
+            Dismiss
+          </Button>
+          <Button
+            variant="primary"
+            leftIcon={RotateCcw}
+            isLoading={retryLoading}
+            onClick={handleConfirmRetry}
+          >
+            Retry Job
+          </Button>
+        </div>
+      </Modal>
+
+      {/* ── All Errors Modal ─────────────────────────────────────────────────── */}
       <Modal
         isOpen={showErrorModal}
         onClose={() => setShowErrorModal(false)}

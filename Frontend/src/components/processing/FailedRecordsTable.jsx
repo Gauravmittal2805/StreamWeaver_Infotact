@@ -9,7 +9,13 @@ import {
   Eye,
   CheckCircle2,
   Copy,
-  Check
+  Check,
+  Layers,
+  Sparkles,
+  Database,
+  FileCode,
+  ShieldAlert,
+  ArrowUpDown
 } from 'lucide-react';
 import Badge from '../ui/Badge';
 import Button from '../ui/Button';
@@ -17,17 +23,41 @@ import Modal from '../ui/Modal';
 import { formatNumber } from '../../utils/formatters';
 
 /**
+ * Infer processing stage if not explicitly set in the backend error payload
+ */
+function inferStage(item) {
+  if (item.stage && item.stage !== '—') return item.stage;
+  const msg = (item.message || item.error || '').toLowerCase();
+  const type = (item.type || '').toLowerCase();
+
+  if (msg.includes('csv') || msg.includes('parser') || msg.includes('delimiter') || type.includes('parse')) {
+    return 'Parsing';
+  }
+  if (msg.includes('transform') || msg.includes('script') || msg.includes('javascript') || type.includes('transform')) {
+    return 'Transformation';
+  }
+  if (msg.includes('map') || msg.includes('destination') || type.includes('mapping')) {
+    return 'Mapping';
+  }
+  if (msg.includes('mongo') || msg.includes('batch') || msg.includes('buffer') || msg.includes('database')) {
+    return 'Buffer / Storage';
+  }
+  return 'Validation';
+}
+
+/**
  * FailedRecordsTable
  *
- * Professional table displaying failed/malformed ETL records:
- * Row | Field | Error | Status
+ * Professional error table displaying:
+ * Row | Field | Stage | Error | Status
  *
- * Features:
- * - Real-time client-side search across Row, Field, and Error text
- * - Dynamic field-level and error-type filtering
- * - Responsive pagination with configurable page size
- * - Deep inspection modal showing raw payload and sanitized failure analysis
- * - One-click CSV export of failed records
+ * Requirements:
+ * - Search across all text fields
+ * - Error-type filter
+ * - Processing-stage filter
+ * - Pagination (strictly bounds DOM rendering to page size for 100K+ error records)
+ * - Row details deep inspection modal
+ * - CSV export
  */
 export function FailedRecordsTable({
   errors = [],
@@ -36,29 +66,33 @@ export function FailedRecordsTable({
   className = ''
 }) {
   const [searchTerm, setSearchTerm] = useState('');
-  const [fieldFilter, setFieldFilter] = useState('ALL');
+  const [stageFilter, setStageFilter] = useState('ALL');
+  const [errorTypeFilter, setErrorTypeFilter] = useState('ALL');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [selectedError, setSelectedError] = useState(null);
   const [copiedRaw, setCopiedRaw] = useState(false);
 
-  // Normalize error items so both backend formats (row/rowNumber, error/message) are supported
+  // Normalize error items
   const normalizedErrors = useMemo(() => {
     if (!Array.isArray(errors)) return [];
     return errors.map((item, idx) => {
       const rowNumber = item.rowNumber ?? item.row ?? (idx + 1);
       const field = item.field || (item.column ? String(item.column) : '—');
       const rawMessage = item.message || item.error || 'Validation or transformation failure';
-      // Clean up technical stack traces if accidentally passed
       const cleanMessage = typeof rawMessage === 'string'
         ? rawMessage.split('\n')[0].replace(/^Error:\s*/i, '').trim()
         : String(rawMessage);
+
+      const type = item.type || (cleanMessage.toLowerCase().includes('syntax') ? 'SYNTAX_ERROR' : 'VALIDATION_ERROR');
+      const stage = inferStage({ ...item, message: cleanMessage, type });
 
       return {
         id: `err-${idx}-${rowNumber}`,
         rowNumber,
         field,
-        type: item.type || 'VALIDATION_ERROR',
+        stage,
+        type,
         message: cleanMessage,
         raw: item.raw || item.record || null,
         original: item
@@ -66,23 +100,34 @@ export function FailedRecordsTable({
     });
   }, [errors]);
 
-  // Extract unique fields for filter dropdown
-  const availableFields = useMemo(() => {
-    const fields = new Set();
+  // Extract unique stages for filter
+  const availableStages = useMemo(() => {
+    const stages = new Set();
     normalizedErrors.forEach(err => {
-      if (err.field && err.field !== '—') {
-        fields.add(err.field);
-      }
+      if (err.stage) stages.add(err.stage);
     });
-    return Array.from(fields).sort();
+    return Array.from(stages).sort();
+  }, [normalizedErrors]);
+
+  // Extract unique error types for filter
+  const availableTypes = useMemo(() => {
+    const types = new Set();
+    normalizedErrors.forEach(err => {
+      if (err.type) types.add(err.type);
+    });
+    return Array.from(types).sort();
   }, [normalizedErrors]);
 
   // Filtered dataset
   const filteredErrors = useMemo(() => {
     let result = normalizedErrors;
 
-    if (fieldFilter !== 'ALL') {
-      result = result.filter(err => err.field === fieldFilter);
+    if (stageFilter !== 'ALL') {
+      result = result.filter(err => err.stage === stageFilter);
+    }
+
+    if (errorTypeFilter !== 'ALL') {
+      result = result.filter(err => err.type === errorTypeFilter);
     }
 
     if (searchTerm.trim()) {
@@ -90,28 +135,30 @@ export function FailedRecordsTable({
       result = result.filter(err =>
         String(err.rowNumber).includes(query) ||
         err.field.toLowerCase().includes(query) ||
+        err.stage.toLowerCase().includes(query) ||
         err.message.toLowerCase().includes(query) ||
-        (err.type && err.type.toLowerCase().includes(query))
+        err.type.toLowerCase().includes(query)
       );
     }
 
     return result;
-  }, [normalizedErrors, fieldFilter, searchTerm]);
+  }, [normalizedErrors, stageFilter, errorTypeFilter, searchTerm]);
 
-  // Pagination calculation
+  // Strict pagination calculation — keeps DOM elements small even with 100K error records
   const totalPages = Math.max(1, Math.ceil(filteredErrors.length / pageSize));
   const validCurrentPage = Math.min(currentPage, totalPages);
   const startIndex = (validCurrentPage - 1) * pageSize;
   const paginatedErrors = filteredErrors.slice(startIndex, startIndex + pageSize);
 
-  // Export errors as CSV
+  // Export CSV
   const handleExportCSV = () => {
     if (normalizedErrors.length === 0) return;
 
-    const headers = ['Row', 'Field', 'Error', 'Status', 'Raw Data'];
+    const headers = ['Row', 'Field', 'Stage', 'Error', 'Status', 'Raw Data'];
     const rows = normalizedErrors.map(err => [
       err.rowNumber,
       `"${err.field.replace(/"/g, '""')}"`,
+      `"${err.stage.replace(/"/g, '""')}"`,
       `"${err.message.replace(/"/g, '""')}"`,
       'Failed',
       err.raw ? `"${JSON.stringify(err.raw).replace(/"/g, '""')}"` : '""'
@@ -139,17 +186,28 @@ export function FailedRecordsTable({
     setTimeout(() => setCopiedRaw(false), 2000);
   };
 
+  // Stage badge color helper
+  const getStageBadgeVariant = (stage) => {
+    switch (stage) {
+      case 'Parsing': return 'warning';
+      case 'Mapping': return 'purple';
+      case 'Transformation': return 'info';
+      case 'Buffer / Storage': return 'default';
+      default: return 'rose';
+    }
+  };
+
   return (
     <div className={`space-y-4 ${className}`}>
-      {/* ── Toolbar: Search, Filter, Export ───────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-        <div className="flex flex-1 items-center gap-3">
+      {/* ── Filter & Search Toolbar ─────────────────────────────────────────── */}
+      <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
+        <div className="flex flex-1 flex-wrap items-center gap-2.5">
           {/* Search */}
-          <div className="relative flex-1 max-w-sm">
+          <div className="relative flex-1 min-w-[200px] max-w-sm">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
               type="text"
-              placeholder="Search by row, field, or error message…"
+              placeholder="Search by row, field, stage, error…"
               value={searchTerm}
               onChange={(e) => {
                 setSearchTerm(e.target.value);
@@ -159,30 +217,64 @@ export function FailedRecordsTable({
             />
           </div>
 
-          {/* Field Filter */}
-          {availableFields.length > 0 && (
+          {/* Processing-Stage Filter */}
+          <div className="relative">
+            <select
+              value={stageFilter}
+              onChange={(e) => {
+                setStageFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="text-xs py-2 pl-3 pr-8 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+            >
+              <option value="ALL">All Stages ({normalizedErrors.length})</option>
+              {availableStages.map(stage => (
+                <option key={stage} value={stage}>
+                  Stage: {stage}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Error-Type Filter */}
+          {availableTypes.length > 0 && (
             <div className="relative">
               <select
-                value={fieldFilter}
+                value={errorTypeFilter}
                 onChange={(e) => {
-                  setFieldFilter(e.target.value);
+                  setErrorTypeFilter(e.target.value);
                   setCurrentPage(1);
                 }}
                 className="text-xs py-2 pl-3 pr-8 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
               >
-                <option value="ALL">All Fields ({normalizedErrors.length})</option>
-                {availableFields.map(field => (
-                  <option key={field} value={field}>
-                    Field: {field}
+                <option value="ALL">All Error Types</option>
+                {availableTypes.map(type => (
+                  <option key={type} value={type}>
+                    Type: {type}
                   </option>
                 ))}
               </select>
             </div>
           )}
+
+          {(searchTerm || stageFilter !== 'ALL' || errorTypeFilter !== 'ALL') && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchTerm('');
+                setStageFilter('ALL');
+                setErrorTypeFilter('ALL');
+                setCurrentPage(1);
+              }}
+              className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline px-1 py-1"
+            >
+              Reset filters
+            </button>
+          )}
         </div>
 
-        {/* Export & Count */}
-        <div className="flex items-center gap-2 self-end sm:self-auto">
+        {/* Export Button */}
+        <div className="flex items-center gap-2 self-end lg:self-auto">
           {normalizedErrors.length > 0 && (
             <Button
               variant="outline"
@@ -197,38 +289,35 @@ export function FailedRecordsTable({
         </div>
       </div>
 
-      {/* ── Table ───────────────────────────────────────────────────────────── */}
+      {/* ── Table (Row | Field | Stage | Error | Status) ────────────────────── */}
       <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
         <table className="w-full text-left text-xs">
           <thead className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-[11px] font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
             <tr>
               <th className="py-3 px-4 w-24">Row</th>
-              <th className="py-3 px-4 w-40">Field</th>
+              <th className="py-3 px-4 w-36">Field</th>
+              <th className="py-3 px-4 w-36">Stage</th>
               <th className="py-3 px-4">Error</th>
               <th className="py-3 px-4 w-28">Status</th>
-              <th className="py-3 px-4 w-20 text-right">Actions</th>
+              <th className="py-3 px-4 w-20 text-right">Details</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-normal">
             {paginatedErrors.length === 0 ? (
               <tr>
-                <td colSpan={5} className="py-10 text-center">
-                  <div className="space-y-2">
+                <td colSpan={6} className="py-12 text-center">
+                  <div className="space-y-2 max-w-sm mx-auto">
                     <AlertCircle className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto" />
-                    <p className="text-sm font-medium text-slate-600 dark:text-slate-400">
-                      {searchTerm || fieldFilter !== 'ALL'
-                        ? 'No failed records match your search or filter.'
-                        : 'No recorded row failures.'}
+                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                      {searchTerm || stageFilter !== 'ALL' || errorTypeFilter !== 'ALL'
+                        ? 'No failed records match your filters'
+                        : 'No recorded row failures'}
                     </p>
-                    {(searchTerm || fieldFilter !== 'ALL') && (
-                      <button
-                        type="button"
-                        onClick={() => { setSearchTerm(''); setFieldFilter('ALL'); }}
-                        className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
-                      >
-                        Reset filters
-                      </button>
-                    )}
+                    <p className="text-xs text-slate-500">
+                      {searchTerm || stageFilter !== 'ALL' || errorTypeFilter !== 'ALL'
+                        ? 'Try broadening your search term or resetting the stage/type filters.'
+                        : 'All streamed records conformed to schema validations and mapping rules.'}
+                    </p>
                   </div>
                 </td>
               </tr>
@@ -240,30 +329,43 @@ export function FailedRecordsTable({
                   onClick={() => setSelectedError(err)}
                 >
                   {/* Row */}
-                  <td className="py-3.5 px-4 font-mono font-semibold text-slate-800 dark:text-slate-200">
+                  <td className="py-3.5 px-4 font-mono font-bold text-slate-900 dark:text-slate-100">
                     #{formatNumber(err.rowNumber)}
                   </td>
 
                   {/* Field */}
                   <td className="py-3.5 px-4">
                     {err.field && err.field !== '—' ? (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-md font-mono text-[11px] bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-md font-mono text-[11px] bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-semibold">
                         {err.field}
                       </span>
                     ) : (
-                      <span className="text-slate-400 italic">Record Level</span>
+                      <span className="text-slate-400 italic">Record-Level</span>
                     )}
+                  </td>
+
+                  {/* Stage */}
+                  <td className="py-3.5 px-4">
+                    <span className="inline-flex items-center gap-1 font-medium text-slate-700 dark:text-slate-300">
+                      <span className={`w-1.5 h-1.5 rounded-full ${
+                        err.stage === 'Parsing' ? 'bg-amber-500' :
+                        err.stage === 'Mapping' ? 'bg-purple-500' :
+                        err.stage === 'Transformation' ? 'bg-indigo-500' :
+                        'bg-rose-500'
+                      }`} />
+                      {err.stage}
+                    </span>
                   </td>
 
                   {/* Error Message */}
                   <td className="py-3.5 px-4">
                     <div className="flex flex-col gap-0.5">
-                      <span className="font-medium text-rose-700 dark:text-rose-400">
+                      <span className="font-semibold text-rose-700 dark:text-rose-400">
                         {err.message}
                       </span>
                       {err.type && (
                         <span className="text-[10px] text-slate-400 font-mono">
-                          Type: {err.type}
+                          {err.type}
                         </span>
                       )}
                     </div>
@@ -276,7 +378,7 @@ export function FailedRecordsTable({
                     </Badge>
                   </td>
 
-                  {/* Actions */}
+                  {/* Row Details Action */}
                   <td className="py-3.5 px-4 text-right">
                     <button
                       type="button"
@@ -297,7 +399,7 @@ export function FailedRecordsTable({
         </table>
       </div>
 
-      {/* ── Pagination ──────────────────────────────────────────────────────── */}
+      {/* ── Pagination (Strict DOM footprint) ──────────────────────────────── */}
       {filteredErrors.length > 0 && (
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
           <div>
@@ -308,7 +410,7 @@ export function FailedRecordsTable({
             of <strong className="text-slate-800 dark:text-slate-200">{formatNumber(filteredErrors.length)}</strong> failed records
             {totalFailedCount > filteredErrors.length && (
               <span className="text-slate-400 ml-1">
-                ({formatNumber(totalFailedCount)} total recorded by engine)
+                ({formatNumber(totalFailedCount)} total tracked)
               </span>
             )}
           </div>
@@ -325,6 +427,7 @@ export function FailedRecordsTable({
               <option value={10}>10 / page</option>
               <option value={25}>25 / page</option>
               <option value={50}>50 / page</option>
+              <option value={100}>100 / page</option>
             </select>
 
             <div className="flex items-center gap-1">
@@ -354,46 +457,57 @@ export function FailedRecordsTable({
         </div>
       )}
 
-      {/* ── Error Details Inspection Modal ────────────────────────────────────── */}
+      {/* ── Error Details Deep Inspection Modal ─────────────────────────────── */}
       <Modal
         isOpen={Boolean(selectedError)}
         onClose={() => setSelectedError(null)}
-        title={`Failed Record Inspection — Row #${selectedError?.rowNumber}`}
-        description="Detailed diagnostics for this record failure."
+        title={`Failed Record Diagnosis — Row #${selectedError?.rowNumber}`}
+        description="Detailed diagnostic metadata and payload for this pipeline failure."
         maxWidth="max-w-2xl"
       >
         {selectedError && (
           <div className="space-y-4 pt-2">
-            {/* Quick summary chips */}
-            <div className="grid grid-cols-3 gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 text-xs">
+            {/* Quick Summary Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 text-xs">
               <div>
                 <span className="text-slate-400 block text-[10px] uppercase font-semibold">Row Number</span>
-                <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                <span className="font-mono font-bold text-slate-800 dark:text-slate-200 text-sm">
                   #{selectedError.rowNumber}
                 </span>
               </div>
               <div>
-                <span className="text-slate-400 block text-[10px] uppercase font-semibold">Failing Field</span>
+                <span className="text-slate-400 block text-[10px] uppercase font-semibold">Field</span>
                 <span className="font-mono font-semibold text-rose-600 dark:text-rose-400">
                   {selectedError.field}
                 </span>
               </div>
               <div>
-                <span className="text-slate-400 block text-[10px] uppercase font-semibold">Failure Type</span>
+                <span className="text-slate-400 block text-[10px] uppercase font-semibold">Stage</span>
+                <Badge variant={getStageBadgeVariant(selectedError.stage)} size="sm">
+                  {selectedError.stage}
+                </Badge>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[10px] uppercase font-semibold">Status</span>
                 <Badge variant="danger" size="sm">
-                  {selectedError.type}
+                  FAILED
                 </Badge>
               </div>
             </div>
 
-            {/* Error Message */}
-            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs">
+            {/* Error Message Callout */}
+            <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs">
               <span className="font-bold text-rose-700 dark:text-rose-300 block mb-1">
-                Reason:
+                Diagnostic Reason:
               </span>
-              <p className="text-rose-800 dark:text-rose-200 leading-relaxed font-mono">
+              <p className="text-rose-800 dark:text-rose-200 font-mono leading-relaxed">
                 {selectedError.message}
               </p>
+              {selectedError.type && (
+                <span className="text-[10px] text-rose-600/80 dark:text-rose-400/80 block mt-1 font-mono">
+                  Error Code / Type: {selectedError.type}
+                </span>
+              )}
             </div>
 
             {/* Raw Record Data */}
@@ -401,7 +515,7 @@ export function FailedRecordsTable({
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-semibold text-slate-700 dark:text-slate-300">
-                    Raw Record Data
+                    Raw Ingestion Payload
                   </span>
                   <button
                     type="button"
@@ -427,10 +541,14 @@ export function FailedRecordsTable({
               </div>
             )}
 
-            {/* Resolution guidance */}
+            {/* Remediation Advice */}
             <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-200">
-              <strong className="block font-semibold mb-0.5">Recommended Action:</strong>
-              Check the source dataset formatting for field <code className="bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded font-mono font-semibold">{selectedError.field}</code> or update the transformation pipeline rule to gracefully handle unexpected values or nulls.
+              <strong className="block font-semibold mb-0.5">Remediation Recommendation:</strong>
+              {selectedError.stage === 'Transformation'
+                ? `Check transformation rules applied to "${selectedError.field}". Ensure null values and edge cases are handled.`
+                : selectedError.stage === 'Parsing'
+                ? 'Check delimiter or character escaping in the raw source file.'
+                : `Ensure the source data type matches destination schema expectations for "${selectedError.field}".`}
             </div>
 
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
