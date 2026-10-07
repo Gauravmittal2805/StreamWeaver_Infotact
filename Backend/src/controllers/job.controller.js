@@ -254,11 +254,48 @@ export async function retryJob(req, res) {
   }
 }
 
+export async function getJobFailedRecords(req, res) {
+  try {
+    const { jobId } = req.params;
+    const limit = Math.min(Math.max(parseInt(req.query.limit || "50", 10), 1), 500);
+    const offset = Math.max(parseInt(req.query.offset || "0", 10), 0);
+
+    const job = await jobService.getJob(jobId);
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: ERROR_CODES.JOB_NOT_FOUND,
+          message: `Job '${jobId}' not found`
+        }
+      });
+    }
+
+    const allErrors = job.errors || [];
+    const totalFailed = job.failedRows || allErrors.length;
+    const paginatedErrors = allErrors.slice(offset, offset + limit);
+
+    res.status(200).json({
+      success: true,
+      jobId,
+      totalFailed,
+      limit,
+      offset,
+      count: paginatedErrors.length,
+      failedRecords: paginatedErrors
+    });
+  } catch (error) {
+    console.error("Get job failed records error:", error);
+    return sendErrorResponse(res, error, 500);
+  }
+}
+
 export default {
   createJob,
   getJob,
   getJobStatus,
   getJobStats,
+  getJobFailedRecords,
   getAllJobs,
   startJob,
   cancelJob,

@@ -4,6 +4,7 @@ import {
   getJob,
   getJobStatus,
   getJobStats,
+  getJobFailedRecords,
   getAllJobs,
   startJob,
   cancelJob,
@@ -17,6 +18,9 @@ router.post("/", createJob);
 router.get("/:jobId", getJob);
 router.get("/:jobId/status", getJobStatus);
 router.get("/:jobId/stats", getJobStats);
+router.get("/:jobId/failed", getJobFailedRecords);
+router.get("/:jobId/failed-records", getJobFailedRecords);
+router.get("/:jobId/errors", getJobFailedRecords);
 router.post("/:jobId/start", startJob);
 router.post("/:jobId/cancel", cancelJob);
 router.post("/:jobId/retry", retryJob);

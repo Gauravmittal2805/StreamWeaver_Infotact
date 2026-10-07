@@ -1,0 +1,98 @@
+{
+  "batchResults": [
+    {
+      "batchSize": 5000,
+      "rows": 50000,
+      "datasetSizeMb": "3.43",
+      "processingTimeSec": 0.86,
+      "rowsPerSec": 58140,
+      "successfulRows": 50000,
+      "failedRows": 0,
+      "peakHeapMb": "93.44",
+      "peakRssMb": "184.60",
+      "mongoDbTimeSec": 0.467
+    },
+    {
+      "batchSize": 2000,
+      "rows": 50000,
+      "datasetSizeMb": "3.43",
+      "processingTimeSec": 1.05,
+      "rowsPerSec": 47755,
+      "successfulRows": 50000,
+      "failedRows": 0,
+      "peakHeapMb": "80.41",
+      "peakRssMb": "166.91",
+      "mongoDbTimeSec": 0.613
+    },
+    {
+      "batchSize": 1000,
+      "rows": 50000,
+      "datasetSizeMb": "3.43",
+      "processingTimeSec": 1.28,
+      "rowsPerSec": 39032,
+      "successfulRows": 50000,
+      "failedRows": 0,
+      "peakHeapMb": "74.48",
+      "peakRssMb": "160.10",
+      "mongoDbTimeSec": 0.914
+    },
+    {
+      "batchSize": 500,
+      "rows": 50000,
+      "datasetSizeMb": "3.43",
+      "processingTimeSec": 1.78,
+      "rowsPerSec": 28121,
+      "successfulRows": 50000,
+      "failedRows": 0,
+      "peakHeapMb": "49.23",
+      "peakRssMb": "126.34",
+      "mongoDbTimeSec": 1.304
+    }
+  ],
+  "scaleResults": [
+    {
+      "rows": 10000,
+      "datasetSizeMb": "0.65",
+      "processingTimeSec": 0.22,
+      "rowsPerSec": 45872,
+      "successfulRows": 10000,
+      "failedRows": 0,
+      "peakHeapMb": "43.24",
+      "peakRssMb": "179.49",
+      "mongoDbTimeSec": 0.093
+    },
+    {
+      "rows": 100000,
+      "datasetSizeMb": "6.91",
+      "processingTimeSec": 1.81,
+      "rowsPerSec": 55218,
+      "successfulRows": 100000,
+      "failedRows": 0,
+      "peakHeapMb": "92.32",
+      "peakRssMb": "186.33",
+      "mongoDbTimeSec": 1.009
+    },
+    {
+      "rows": 500000,
+      "datasetSizeMb": "36.24",
+      "processingTimeSec": 8.43,
+      "rowsPerSec": 59347,
+      "successfulRows": 500000,
+      "failedRows": 0,
+      "peakHeapMb": "97.10",
+      "peakRssMb": "190.29",
+      "mongoDbTimeSec": 4.777
+    },
+    {
+      "rows": 1000000,
+      "datasetSizeMb": "72.91",
+      "processingTimeSec": 26.15,
+      "rowsPerSec": 38237,
+      "successfulRows": 1000000,
+      "failedRows": 0,
+      "peakHeapMb": "97.10",
+      "peakRssMb": "190.29",
+      "mongoDbTimeSec": 19.037
+    }
+  ]
+}

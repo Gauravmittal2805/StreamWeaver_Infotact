@@ -64,6 +64,11 @@ export async function cancelETLJob(jobId) {
     type: "cancelled",
     jobId,
     status: JOB_STATUS.CANCELLED,
+    processedRows: updatedJob.processedRows || 0,
+    successfulRows: updatedJob.successfulRows || 0,
+    failedRows: updatedJob.failedRows || 0,
+    progressPercent: updatedJob.progressPercent || 0,
+    rowsPerSecond: updatedJob.rowsPerSecond || 0,
     completedAt
   });
 
@@ -269,7 +274,8 @@ export async function processDataset(datasetId, jobId, options = {}) {
       metrics: {
         ...finalMetrics,
         successfulRows: finalSuccessful,
-        failedRows: finalFailed
+        failedRows: finalFailed,
+        mongoDbTimeSeconds: (typeof mongoStream.getDbTimeSeconds === 'function') ? mongoStream.getDbTimeSeconds() : 0
       },
       job: completedJob
     };
@@ -297,11 +303,16 @@ export async function processDataset(datasetId, jobId, options = {}) {
       }
     });
 
-    // Broadcast failure event
+    // Broadcast failure event with full progress state
     broadcastJobEvent(jobId, {
       type: "failed",
       jobId,
       status: JOB_STATUS.FAILED,
+      processedRows: failedJob.processedRows || 0,
+      successfulRows: failedJob.successfulRows || 0,
+      failedRows: failedJob.failedRows || 0,
+      rowsPerSecond: failedJob.rowsPerSecond || 0,
+      progressPercent: failedJob.progressPercent || 0,
       error: error.message || "Processing failed. Please check your dataset and pipeline configuration.",
       completedAt,
     });

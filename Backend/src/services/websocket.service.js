@@ -27,7 +27,7 @@ export function initWebSocketServer(serverOptions) {
       ws.isAlive = true;
     });
 
-    ws.on('message', (message) => {
+    ws.on('message', async (message) => {
       try {
         const data = JSON.parse(message.toString());
 
@@ -38,6 +38,28 @@ export function initWebSocketServer(serverOptions) {
           }
           jobSubscriptions.get(data.jobId).add(ws);
           ws.send(JSON.stringify({ type: 'subscribed', jobId: data.jobId }));
+
+          // Send current job state snapshot immediately if available
+          try {
+            const { getJob } = await import('./job.service.js');
+            const job = await getJob(data.jobId);
+            if (job && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({
+                type: 'snapshot',
+                jobId: data.jobId,
+                status: job.status,
+                totalRows: job.totalRows || 0,
+                processedRows: job.processedRows || 0,
+                successfulRows: job.successfulRows || 0,
+                failedRows: job.failedRows || 0,
+                rowsPerSecond: job.rowsPerSecond || 0,
+                progressPercent: job.progressPercent || 0,
+                timestamp: new Date().toISOString()
+              }));
+            }
+          } catch {
+            // Ignore snapshot fetch error
+          }
         } else if (data.type === 'unsubscribe' && data.jobId) {
           ws.subscribedJobs.delete(data.jobId);
           if (jobSubscriptions.has(data.jobId)) {
@@ -89,7 +111,8 @@ export function initWebSocketServer(serverOptions) {
 }
 
 /**
- * Broadcasts job progress to all WebSocket clients subscribed to jobId.
+ * Broadcasts job progress strictly to WebSocket clients subscribed to that specific jobId.
+ * Ensures updates from Job A never leak to Job B's dashboard.
  *
  * @param {string} jobId 
  * @param {object} progressData 
