@@ -6,6 +6,7 @@ import { setBroadcast } from './src/services/etl.service.js';
 import { recoverStuckJobs } from './src/services/job.service.js';
 import { connectDB } from './src/config/db.js';
 import { initDatabaseIndexes } from './src/models/index.js';
+import { setJobBroadcast } from './src/services/job.service.js';
 
 // Load environment variables
 dotenv.config();
@@ -20,7 +21,10 @@ const wss = initWebSocketServer(server);
 export function broadcast(jobId, data) {
   broadcastJobProgress(jobId, data);
 }
+
+// Register broadcast with ETL and Job services so they can push progress events
 setBroadcast(broadcast);
+setJobBroadcast(broadcast);
 
 // ─── Start server & job recovery ──────────────────────────────────────────────
 if (process.env.NODE_ENV !== 'test') {

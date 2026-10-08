@@ -53,4 +53,29 @@ export const jobService = {
     });
     return await handleApiResponse(res);
   },
+
+  /**
+   * Retry a failed, cancelled, or completed job
+   * @param {string} jobId
+   * @returns {Promise<Object>}
+   */
+  async retryJob(jobId) {
+    const res = await fetch(`${API_BASE_URL}/jobs/${jobId}/retry`, {
+      method: 'POST',
+    });
+    return await handleApiResponse(res);
+  },
+
+  /**
+   * Get all ETL jobs, optionally filtered by datasetId
+   * @param {string} [datasetId]
+   * @returns {Promise<Object>}
+   */
+  async getAllJobs(datasetId = null) {
+    const url = datasetId
+      ? `${API_BASE_URL}/jobs?datasetId=${encodeURIComponent(datasetId)}`
+      : `${API_BASE_URL}/jobs`;
+    const res = await fetch(url);
+    return await handleApiResponse(res);
+  },
 };
