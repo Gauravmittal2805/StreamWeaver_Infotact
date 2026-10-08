@@ -10,6 +10,7 @@ import transformationRoutes from './src/routes/transformation.routes.js';
 import { initWebSocketServer } from './src/services/websocket.service.js';
 import { sendErrorResponse } from './src/utils/errors.js';
 import { setBroadcast } from './src/services/etl.service.js';
+import { setJobBroadcast } from './src/services/job.service.js';
 
 // Load environment variables
 dotenv.config();
@@ -139,8 +140,9 @@ export function broadcast(jobId, data) {
   }
 }
 
-// Register broadcast with ETL service so it can push progress events
+// Register broadcast with ETL and Job services so they can push progress events
 setBroadcast(broadcast);
+setJobBroadcast(broadcast);
 
 // ─── Start server ─────────────────────────────────────────────────────────────
 if (process.env.NODE_ENV !== 'test') {

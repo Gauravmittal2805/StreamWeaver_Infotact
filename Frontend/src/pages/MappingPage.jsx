@@ -680,6 +680,7 @@ export function MappingPage() {
           <ProcessingStage
             datasetMeta={{ ...(datasetMeta || {}), filename: displayName, format: displayFormat, datasetId }}
             mappings={mappings}
+            destinationFields={destinationFields}
             sampleRows={previewData?.rows || sampleRows}
             onBackToTransform={() => setActiveTab('transform')}
             onNavigateToJobs={() => navigate('/jobs')}

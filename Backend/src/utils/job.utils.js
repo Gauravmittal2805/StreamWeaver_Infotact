@@ -3,6 +3,7 @@
  */
 export const JOB_STATUS = {
   QUEUED: "queued",
+  RETRYING: "retrying",
   PROCESSING: "processing",
   COMPLETED: "completed",
   FAILED: "failed",
