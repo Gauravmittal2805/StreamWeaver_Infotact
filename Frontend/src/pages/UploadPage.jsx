@@ -324,23 +324,35 @@ export function UploadPage() {
                 </div>
               </div>
 
-              {/* Next Action Buttons */}
-              <div className="flex flex-col-reverse sm:flex-row items-center justify-between gap-3 pt-2">
+              {/* Next Action Buttons (Seamless Main User Journey) */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-emerald-100">
                 <Button
                   variant="outline"
+                  size="sm"
                   onClick={resetUpload}
                 >
-                  Upload Another Dataset
+                  Upload Another File
                 </Button>
 
-                <div className="flex items-center gap-3 w-full sm:w-auto">
-                  <Link to="/datasets" className="w-full sm:w-auto">
+                <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto justify-end">
+                  <Link to={`/datasets/${uploadResult.dataset?.id}/preview`}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      leftIcon={Eye}
+                    >
+                      Preview
+                    </Button>
+                  </Link>
+
+                  <Link to={`/datasets/${uploadResult.dataset?.id}/mapping`}>
                     <Button
                       variant="primary"
+                      size="sm"
                       rightIcon={ArrowRight}
-                      className="w-full sm:w-auto"
+                      className="bg-indigo-600 hover:bg-indigo-700 shadow-sm"
                     >
-                      View in Datasets Inventory
+                      Configure Mapping & Process →
                     </Button>
                   </Link>
                 </div>

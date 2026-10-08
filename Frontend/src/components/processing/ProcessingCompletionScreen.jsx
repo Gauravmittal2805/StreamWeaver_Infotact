@@ -93,10 +93,17 @@ export function ProcessingCompletionScreen({
             </p>
           </div>
 
-          {/* Quick Integrity Pill */}
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-100/70 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-xs font-semibold text-emerald-800 dark:text-emerald-300">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>{integrityPercent}% Pipeline Data Integrity</span>
+          {/* Quick Integrity Pill & Job ID */}
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-100/70 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-xs font-semibold text-emerald-800 dark:text-emerald-300">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>{integrityPercent}% Pipeline Data Integrity</span>
+            </div>
+            {jobId && (
+              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono text-slate-600 dark:text-slate-400">
+                <span>Job ID: {jobId}</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -178,7 +185,7 @@ export function ProcessingCompletionScreen({
         {/* ── Action Buttons (Step 8 Required Actions) ────────────────────────── */}
         <div className="flex items-center justify-center gap-3 mt-8 flex-wrap">
           {/* Action 1: View Results */}
-          <Link to={datasetId ? `/datasets/${datasetId}/preview` : `/jobs/${jobId}`}>
+          <Link to={datasetId ? `/datasets/${datasetId}/preview` : (jobId ? `/jobs/${jobId}` : '/datasets')}>
             <Button
               variant="outline"
               size="md"
@@ -189,7 +196,21 @@ export function ProcessingCompletionScreen({
             </Button>
           </Link>
 
-          {/* Action 2: View Errors (if failed > 0) */}
+          {/* Action 2: View Job */}
+          {jobId && (
+            <Link to={`/jobs/${jobId}`}>
+              <Button
+                variant="outline"
+                size="md"
+                leftIcon={Layers}
+                className="min-w-36"
+              >
+                View Job
+              </Button>
+            </Link>
+          )}
+
+          {/* Action 3: View Errors (if failed > 0) */}
           {(failedRows > 0 || errors.length > 0) && (
             <Button
               variant="outline"
@@ -202,7 +223,7 @@ export function ProcessingCompletionScreen({
             </Button>
           )}
 
-          {/* Action 3: Process Another Dataset */}
+          {/* Action 4: Process Another Dataset */}
           <Link to="/datasets">
             <Button
               variant="primary"

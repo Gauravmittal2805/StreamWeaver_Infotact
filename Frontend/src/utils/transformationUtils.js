@@ -11,7 +11,8 @@ import {
   HelpCircle,
   Code2,
   Terminal,
-  FileCode
+  FileCode,
+  Calendar
 } from 'lucide-react';
 
 /**
@@ -123,6 +124,17 @@ export const TRANSFORMATIONS = [
     category: 'numeric',
     hasConfig: false,
     example: { before: '"1049.50"', after: '1049.5' }
+  },
+  {
+    id: 'date',
+    label: 'Date Transformation',
+    shortLabel: 'Date',
+    description: 'Parse date string into standard ISO format (YYYY-MM-DD)',
+    icon: Calendar,
+    badgeColor: 'bg-teal-50 text-teal-700 dark:bg-teal-950/50 dark:text-teal-300 border-teal-200 dark:border-teal-800',
+    category: 'advanced',
+    hasConfig: false,
+    example: { before: '2026-10-08T15:30:00.000Z', after: '2026-10-08' }
   },
   {
     id: 'custom_js',
@@ -241,6 +253,21 @@ export function applyClientTransformation(value, transformation = 'none', config
       if (trimmed === '') return null;
       const num = Number(trimmed);
       return Number.isNaN(num) ? null : num;
+    }
+
+    case 'date':
+    case 'date_format':
+    case 'date_transform':
+    case 'to_date': {
+      const trimmed = strVal.trim();
+      if (trimmed === '') return null;
+      const parsedDate = new Date(trimmed);
+      if (Number.isNaN(parsedDate.getTime())) return strVal;
+      const format = config?.format || 'YYYY-MM-DD';
+      if (format === 'ISO' || format === 'ISO_TIMESTAMP') {
+        return parsedDate.toISOString();
+      }
+      return parsedDate.toISOString().split('T')[0];
     }
 
     case 'replace': {

@@ -23,6 +23,7 @@ export const SUPPORTED_TRANSFORMATIONS = [
   { id: 'lowercase', label: 'Lowercase', description: 'Convert text to lowercase', hasConfig: false },
   { id: 'trim', label: 'Trim', description: 'Remove leading and trailing whitespace', hasConfig: false },
   { id: 'number', label: 'Convert to Number', description: 'Parse string into numeric value', hasConfig: false },
+  { id: 'date', label: 'Date Transformation', description: 'Parse and format date values to ISO format', hasConfig: false },
   { id: 'custom_js', label: 'Custom JavaScript', description: 'Custom rule executed in secure server-side sandbox', hasConfig: true },
   { id: 'replace', label: 'Replace', description: 'Find and replace substring', hasConfig: true },
   { id: 'prefix', label: 'Add Prefix', description: 'Prepend text before the value', hasConfig: true },
@@ -221,6 +222,26 @@ export function applyTransformation(value, transformation = 'none', config = {},
         throw err;
       }
       return num;
+    }
+
+    case 'date':
+    case 'date_format':
+    case 'date_transform':
+    case 'date_transformation':
+    case 'to_date': {
+      const trimmed = strVal.trim();
+      if (trimmed === '') return null;
+      const parsedDate = new Date(trimmed);
+      if (Number.isNaN(parsedDate.getTime())) {
+        const err = new Error(`Cannot parse '${strVal}' as valid Date`);
+        err.errorType = ERROR_CODES.TRANSFORMATION_ERROR;
+        throw err;
+      }
+      const format = config?.format || 'YYYY-MM-DD';
+      if (format === 'ISO' || format === 'ISO_TIMESTAMP') {
+        return parsedDate.toISOString();
+      }
+      return parsedDate.toISOString().split('T')[0];
     }
 
     case 'custom_js':

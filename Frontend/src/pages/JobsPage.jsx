@@ -51,6 +51,7 @@ export function JobsPage() {
   // Modals & Action States
   const [cancelingJobId, setCancelingJobId] = useState(null);
   const [cancelLoading, setCancelLoading] = useState(false);
+  const [cancelError, setCancelError] = useState(null);
   const [retryingJob, setRetryingJob] = useState(null);
   const [retryLoading, setRetryLoading] = useState(false);
   const [retryError, setRetryError] = useState(null);
@@ -96,12 +97,13 @@ export function JobsPage() {
   const handleConfirmCancel = async () => {
     if (!cancelingJobId) return;
     setCancelLoading(true);
+    setCancelError(null);
     try {
       await jobService.cancelJob(cancelingJobId);
       setCancelingJobId(null);
       await fetchJobs();
     } catch (err) {
-      alert(err.message || 'Failed to cancel job');
+      setCancelError(err.message || 'Failed to cancel job');
     } finally {
       setCancelLoading(false);
     }
@@ -509,12 +511,17 @@ export function JobsPage() {
       {/* Cancel Modal (Requirement 7) */}
       <Modal
         isOpen={Boolean(cancelingJobId)}
-        onClose={() => setCancelingJobId(null)}
+        onClose={() => { setCancelingJobId(null); setCancelError(null); }}
         title="Cancel Job Processing?"
         description={`Are you sure you want to stop processing job ${cancelingJobId}?`}
       >
+        {cancelError && (
+          <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 mb-3">
+            {cancelError}
+          </div>
+        )}
         <div className="flex items-center justify-end gap-3 mt-4">
-          <Button variant="outline" onClick={() => setCancelingJobId(null)}>
+          <Button variant="outline" onClick={() => { setCancelingJobId(null); setCancelError(null); }}>
             Keep Running
           </Button>
           <Button

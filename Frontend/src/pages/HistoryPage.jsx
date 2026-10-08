@@ -66,8 +66,10 @@ export function HistoryPage() {
   const [copiedId, setCopiedId] = useState(null);
   const [cancelingJobId, setCancelingJobId] = useState(null);
   const [cancelLoading, setCancelLoading] = useState(false);
+  const [cancelError, setCancelError] = useState(null);
   const [retryingJob, setRetryingJob] = useState(null);
   const [retryLoading, setRetryLoading] = useState(false);
+  const [retryError, setRetryError] = useState(null);
 
   // Fetch all jobs from backend
   const fetchJobs = useCallback(async () => {
@@ -102,12 +104,13 @@ export function HistoryPage() {
   const handleConfirmCancel = async () => {
     if (!cancelingJobId) return;
     setCancelLoading(true);
+    setCancelError(null);
     try {
       await jobService.cancelJob(cancelingJobId);
       setCancelingJobId(null);
       await fetchJobs();
     } catch (err) {
-      alert(err.message || 'Failed to cancel job');
+      setCancelError(err.message || 'Failed to cancel job');
     } finally {
       setCancelLoading(false);
     }
@@ -117,12 +120,13 @@ export function HistoryPage() {
   const handleConfirmRetry = async () => {
     if (!retryingJob) return;
     setRetryLoading(true);
+    setRetryError(null);
     try {
       await jobService.retryJob(retryingJob.jobId);
       setRetryingJob(null);
       navigate(`/processing/${retryingJob.jobId}`);
     } catch (err) {
-      alert(err.message || 'Failed to retry job');
+      setRetryError(err.message || 'Failed to retry job');
     } finally {
       setRetryLoading(false);
     }
@@ -750,12 +754,17 @@ export function HistoryPage() {
       {/* ── Cancel Confirmation Modal ─────────────────────────────────────────── */}
       <Modal
         isOpen={Boolean(cancelingJobId)}
-        onClose={() => setCancelingJobId(null)}
+        onClose={() => { setCancelingJobId(null); setCancelError(null); }}
         title="Cancel Job Processing?"
         description={`Are you sure you want to stop processing job ${cancelingJobId}? Processed rows will remain committed.`}
       >
+        {cancelError && (
+          <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 mb-3">
+            {cancelError}
+          </div>
+        )}
         <div className="flex items-center justify-end gap-3 mt-4">
-          <Button variant="outline" onClick={() => setCancelingJobId(null)}>
+          <Button variant="outline" onClick={() => { setCancelingJobId(null); setCancelError(null); }}>
             Keep Running
           </Button>
           <Button
@@ -772,12 +781,17 @@ export function HistoryPage() {
       {/* ── Retry Confirmation Modal (Requirement 6) ──────────────────────────── */}
       <Modal
         isOpen={Boolean(retryingJob)}
-        onClose={() => setRetryingJob(null)}
+        onClose={() => { setRetryingJob(null); setRetryError(null); }}
         title="Retry Processing Job?"
         description={`Are you sure you want to retry job ${retryingJob?.jobId}? This will re-initialize the streaming pipeline.`}
       >
+        {retryError && (
+          <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 mb-3">
+            {retryError}
+          </div>
+        )}
         <div className="flex items-center justify-end gap-3 mt-4">
-          <Button variant="outline" onClick={() => setRetryingJob(null)}>
+          <Button variant="outline" onClick={() => { setRetryingJob(null); setRetryError(null); }}>
             Dismiss
           </Button>
           <Button
