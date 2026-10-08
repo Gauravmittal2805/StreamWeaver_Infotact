@@ -214,25 +214,25 @@ export async function retryJob(req, res) {
       });
     }
 
-    if (job.status !== "failed" && job.status !== "cancelled") {
+    if (job.status !== "failed" && job.status !== "cancelled" && job.status !== "completed") {
       return res.status(400).json({
         success: false,
         error: {
           code: ERROR_CODES.INVALID_JOB_STATUS,
-          message: `Only failed or cancelled jobs can be retried (current status: '${job.status}')`
+          message: `Only failed, cancelled, or completed jobs can be retried (current status: '${job.status}')`
         }
       });
     }
 
     const resetJob = await jobService.updateJob(jobId, {
-      status: "queued",
+      status: "retrying",
       processedRows: 0,
       successfulRows: 0,
       failedRows: 0,
       rowsPerSecond: 0,
       progressPercent: 0,
       errors: [],
-      startedAt: null,
+      startedAt: new Date().toISOString(),
       completedAt: null,
       error: null
     });
@@ -272,7 +272,7 @@ export async function getJobFailedRecords(req, res) {
     }
 
     const allErrors = job.errors || [];
-    const totalFailed = job.failedRows || allErrors.length;
+    const totalFailed = typeof job.failedRows === 'number' ? job.failedRows : allErrors.length;
     const paginatedErrors = allErrors.slice(offset, offset + limit);
 
     res.status(200).json({
@@ -290,52 +290,6 @@ export async function getJobFailedRecords(req, res) {
   }
 }
 
-export async function retryJob(req, res) {
-  try {
-    const { jobId } = req.params;
-    const { batchSize } = req.body || {};
-    const job = await jobService.getJob(jobId);
-    if (!job) {
-      return res.status(404).json({
-        success: false,
-        error: {
-          code: ERROR_CODES.PROCESSING_ERROR,
-          message: `Job '${jobId}' not found`
-        }
-      });
-    }
-
-    // Set job to retrying state and reset metrics
-    const updated = await jobService.updateJob(jobId, {
-      status: "retrying",
-      processedRows: 0,
-      successfulRows: 0,
-      failedRows: 0,
-      rowsPerSecond: 0,
-      progressPercent: 0,
-      errors: [],
-      error: null,
-      startedAt: new Date().toISOString(),
-      completedAt: null
-    });
-
-    setImmediate(() => {
-      etlService.processDataset(job.datasetId, job.jobId, { batchSize }).catch((err) => {
-        console.error(`Retry job processing error for ${jobId}:`, err);
-      });
-    });
-
-    res.json({
-      success: true,
-      message: "Job retry initiated",
-      jobId,
-      job: updated
-    });
-  } catch (error) {
-    console.error("Retry job error:", error);
-    return sendErrorResponse(res, error, 500);
-  }
-}
 
 export default {
   createJob,

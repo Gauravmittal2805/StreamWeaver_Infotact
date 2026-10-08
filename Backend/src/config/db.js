@@ -3,9 +3,14 @@ import { MongoClient } from 'mongodb';
 let client;
 let db;
 
-export async function connectDB() {
-  if (db) {
+export async function connectDB(force = false) {
+  if (db && !force) {
     return db;
+  }
+  if (force && client) {
+    try { await client.close(); } catch {}
+    client = null;
+    db = null;
   }
   const mongoUri = process.env.MONGO_URI || 'mongodb://localhost:27017';
   const dbName = process.env.MONGO_DB_NAME || 'streamweaver';

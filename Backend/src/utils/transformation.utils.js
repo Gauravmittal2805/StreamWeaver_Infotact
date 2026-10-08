@@ -319,7 +319,21 @@ export function transformRecord(record, mappings = [], unmappedFieldsMode = 'ign
       const config = rule.transformConfig || rule.config || {};
 
       const rawValue = getNestedValue(record, sourceField);
-      const transformedValue = applyTransformation(rawValue, transformType, config, record);
+      let transformedValue;
+      try {
+        transformedValue = applyTransformation(rawValue, transformType, config, record);
+      } catch (err) {
+        return {
+          _isMalformed: true,
+          _rowNumber: record._rowNumber || null,
+          field: sourceField || destinationField,
+          error: {
+            type: err.errorType || ERROR_CODES.TRANSFORMATION_ERROR,
+            message: err.message
+          },
+          raw: record
+        };
+      }
 
       if (transformedValue !== undefined) {
         setNestedValue(transformed, destinationField, transformedValue);
@@ -333,6 +347,7 @@ export function transformRecord(record, mappings = [], unmappedFieldsMode = 'ign
     return {
       _isMalformed: true,
       _rowNumber: record._rowNumber || null,
+      field: null,
       error: {
         type: err.errorType || ERROR_CODES.TRANSFORMATION_ERROR,
         message: err.message

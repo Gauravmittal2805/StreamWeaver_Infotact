@@ -1,6 +1,6 @@
 import { getDatasetInfo } from './dataset.service.js';
 import { getDatasetPreview } from './file.service.js';
-import { transformRecord, applyTransformation, executeCustomJavaScript, SUPPORTED_TRANSFORMATIONS } from '../utils/transformation.utils.js';
+import { transformRecord, applyTransformation, executeCustomJavaScript, getNestedValue, SUPPORTED_TRANSFORMATIONS } from '../utils/transformation.utils.js';
 import { ERROR_CODES, AppError } from '../utils/errors.js';
 
 // In-memory mapping configurations store keyed by datasetId
@@ -284,7 +284,7 @@ export async function previewMappingTransformation(datasetId, options = {}) {
   // Generate before/after itemized comparison for each mapped field
   const comparisons = rowsToPreview.map((row, rowIndex) => {
     const fieldComparisons = mappings.map(rule => {
-      const sourceVal = row[rule.sourceField];
+      const sourceVal = getNestedValue(row, rule.sourceField);
       const transformType = rule.transformation || rule.transformRule || 'none';
       const config = rule.transformConfig || rule.config || {};
 
