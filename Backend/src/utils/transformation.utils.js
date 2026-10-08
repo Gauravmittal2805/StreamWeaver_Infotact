@@ -1,4 +1,4 @@
-import vm from 'node:vm';
+import ivm from 'isolated-vm';
 import { ERROR_CODES } from './errors.js';
 
 /**
@@ -32,7 +32,53 @@ export const SUPPORTED_TRANSFORMATIONS = [
 ];
 
 /**
- * Execute custom JavaScript rule in a secure, isolated server-side VM sandbox.
+ * Extracts nested property value using dot-notation path (e.g. "user.profile.age")
+ * Falls back to direct property lookup for flat objects.
+ */
+export function getNestedValue(obj, path) {
+  if (!obj || typeof obj !== 'object' || path === null || path === undefined) return undefined;
+  if (Object.prototype.hasOwnProperty.call(obj, path)) return obj[path];
+  if (typeof path !== 'string' || !path.includes('.')) return obj[path];
+
+  const parts = path.split('.');
+  let curr = obj;
+  for (const part of parts) {
+    if (curr === null || curr === undefined || typeof curr !== 'object') return undefined;
+    curr = curr[part];
+  }
+  return curr;
+}
+
+/**
+ * Sets nested property value using dot-notation path (e.g. "user.profile.age")
+ * Creates intermediate objects as needed.
+ */
+export function setNestedValue(obj, path, value) {
+  if (!obj || typeof obj !== 'object' || !path) return obj;
+  if (typeof path !== 'string' || !path.includes('.')) {
+    obj[path] = value;
+    return obj;
+  }
+
+  const parts = path.split('.');
+  let curr = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const part = parts[i];
+    if (!curr[part] || typeof curr[part] !== 'object') {
+      curr[part] = {};
+    }
+    curr = curr[part];
+  }
+  curr[parts[parts.length - 1]] = value;
+  return obj;
+}
+
+/**
+ * Execute custom JavaScript rule in a secure, isolated server-side VM sandbox (isolated-vm).
+ * Enforces:
+ * - Isolated V8 heap with strict 128MB memory limit
+ * - Strict CPU timeout
+ * - Total isolation from Node.js runtime, filesystem, process, network, and prototype chain
  * 
  * @param {string} code - JavaScript code written by the user (e.g. `return value.toUpperCase();`)
  * @param {any} value - The input value to transform
@@ -56,68 +102,45 @@ export function executeCustomJavaScript(code, value, record = {}, timeoutMs = 10
     executableBody = `return (${trimmedCode});`;
   }
 
-  const wrappedScript = `
-    "use strict";
-    (function(value, record) {
-      ${executableBody}
-    })(value, record)
-  `;
-
+  let isolate = null;
   try {
-    const sandbox = Object.freeze({
-      value,
-      record: Object.freeze({ ...record }),
-      Math,
-      Number,
-      String,
-      Boolean,
-      Date,
-      Array,
-      Object: {
-        keys: Object.keys,
-        values: Object.values,
-        entries: Object.entries,
-        assign: Object.assign
-      },
-      parseInt,
-      parseFloat,
-      isNaN,
-      isFinite,
-      encodeURI,
-      decodeURI,
-      encodeURIComponent,
-      decodeURIComponent,
-      JSON: {
-        parse: JSON.parse,
-        stringify: JSON.stringify
-      }
-    });
+    // 128MB memory limit prevents runaway allocations
+    isolate = new ivm.Isolate({ memoryLimit: 128 });
+    const context = isolate.createContextSync();
+    const jail = context.global;
+    jail.setSync('global', jail.derefInto());
 
-    const script = new vm.Script(wrappedScript, {
-      filename: 'custom-transform.js',
-      lineOffset: 0,
-      displayErrors: true
-    });
+    const valueJson = JSON.stringify(value === undefined ? null : value);
+    const recordJson = JSON.stringify(record || {});
 
-    const context = vm.createContext(sandbox);
-    const result = script.runInContext(context, {
-      timeout: timeoutMs,
-      displayErrors: true,
-      breakOnSigint: true
-    });
+    const wrappedScript = `
+      (function() {
+        "use strict";
+        const value = ${valueJson};
+        const record = ${recordJson};
+        const fn = function(value, record) {
+          ${executableBody}
+        };
+        const res = fn(value, record);
+        return JSON.stringify(res === undefined ? null : res);
+      })()
+    `;
+
+    const script = isolate.compileScriptSync(wrappedScript, { filename: 'custom-transform.js' });
+    const outputJson = script.runSync(context, { timeout: timeoutMs });
 
     return {
       success: true,
-      result: result === undefined ? null : result
+      result: outputJson !== undefined ? JSON.parse(outputJson) : null
     };
   } catch (err) {
     let errorType = ERROR_CODES.TRANSFORMATION_ERROR;
-    let errorMessage = 'The transformation could not be executed.';
+    let errorMessage = err.message || 'The transformation could not be executed.';
 
-    if (err.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT' || err.message?.includes('timed out') || err.message?.includes('execution timed out')) {
+    if (err.message && (err.message.includes('Script execution timed out') || err.message.includes('timed out'))) {
       errorType = ERROR_CODES.SANDBOX_TIMEOUT;
       errorMessage = `Sandbox execution timed out (${timeoutMs}ms limit exceeded).`;
-    } else if (err.name === 'SyntaxError' || err.message?.includes('Unexpected') || err.message?.includes('Syntax')) {
+    } else if (err.name === 'SyntaxError' || (err.message && err.message.includes('Unexpected token')) || (err.message && err.message.includes('SyntaxError'))) {
       errorType = ERROR_CODES.INVALID_TRANSFORMATION;
       errorMessage = `Syntax Error in custom JS: ${err.message}`;
     } else if (err instanceof TypeError || err instanceof ReferenceError || err instanceof RangeError) {
@@ -131,6 +154,14 @@ export function executeCustomJavaScript(code, value, record = {}, timeoutMs = 10
       errorMessage,
       rawError: err.message
     };
+  } finally {
+    if (isolate) {
+      try {
+        isolate.dispose();
+      } catch {
+        // Disposed cleanly
+      }
+    }
   }
 }
 
@@ -249,6 +280,7 @@ export function applyTransformation(value, transformation = 'none', config = {},
 
 /**
  * Transform a single record object according to mapping and transformation rules.
+ * Supports nested source and destination properties (e.g. "user.profile.age").
  *
  * @param {object} record - Source record
  * @param {Array} mappings - Mappings array [{ sourceField, destinationField, transformation, transformConfig }]
@@ -286,11 +318,11 @@ export function transformRecord(record, mappings = [], unmappedFieldsMode = 'ign
       const transformType = rule.transformation || rule.transformRule || 'none';
       const config = rule.transformConfig || rule.config || {};
 
-      const rawValue = record[sourceField];
+      const rawValue = getNestedValue(record, sourceField);
       const transformedValue = applyTransformation(rawValue, transformType, config, record);
 
       if (transformedValue !== undefined) {
-        transformed[destinationField] = transformedValue;
+        setNestedValue(transformed, destinationField, transformedValue);
       }
     }
 
@@ -312,6 +344,8 @@ export function transformRecord(record, mappings = [], unmappedFieldsMode = 'ign
 
 export default {
   SUPPORTED_TRANSFORMATIONS,
+  getNestedValue,
+  setNestedValue,
   executeCustomJavaScript,
   applyTransformation,
   transformRecord

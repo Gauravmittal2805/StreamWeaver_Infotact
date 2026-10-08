@@ -447,13 +447,11 @@ export async function getDatasetPreview(datasetId, limit = 1000) {
     throw new Error('Dataset file not found on disk');
   }
 
-  const { default: csv } = await import('csv-parser');
-  const { default: readline } = await import('readline');
+  const { createCSVParserStream, createJSONParserStream } = await import('../parsers/index.js');
 
   return new Promise((resolve, reject) => {
     const rows = [];
     let columns = [];
-    // Guard flag to prevent double-resolve (CSV 'end' can fire after readStream.destroy())
     let resolved = false;
 
     const doResolve = (payload) => {
@@ -462,44 +460,44 @@ export async function getDatasetPreview(datasetId, limit = 1000) {
       resolve(payload);
     };
 
-    const readStream = fs.createReadStream(metadata.path, { encoding: 'utf8' });
+    const readStream = fs.createReadStream(metadata.path);
 
     if (metadata.format === 'csv') {
-      const csvStream = readStream.pipe(csv());
+      const csvStream = readStream.pipe(createCSVParserStream());
 
-      csvStream.on('headers', (headers) => {
-        columns = headers;
-      });
-
-      csvStream.on('data', (data) => {
+      csvStream.on('data', (record) => {
         if (resolved) return;
-        if (rows.length < limit) {
-          rows.push(data);
-          if (columns.length === 0) {
-            columns = Object.keys(data);
+        if (record && !record._isMalformed) {
+          const cleanDoc = { ...record };
+          delete cleanDoc._rowNumber;
+          if (rows.length < limit) {
+            rows.push(cleanDoc);
+            if (columns.length === 0) {
+              columns = Object.keys(cleanDoc);
+            }
           }
-        } else {
-          // Hit the limit — stop streaming; file is larger than preview window
-          readStream.destroy();
-          doResolve({
-            datasetId,
-            format: 'csv',
-            filename: metadata.originalName,
-            totalRecordsEstimated: null, // Unknown — do not fabricate
-            previewLimit: limit,
-            columns,
-            rows,
-          });
+          if (rows.length >= limit) {
+            readStream.destroy();
+            csvStream.destroy();
+            doResolve({
+              datasetId,
+              format: 'csv',
+              filename: metadata.originalName,
+              totalRecordsEstimated: null,
+              previewLimit: limit,
+              columns,
+              rows,
+            });
+          }
         }
       });
 
       csvStream.on('end', () => {
-        // Reached EOF naturally — actual row count is known
         doResolve({
           datasetId,
           format: 'csv',
           filename: metadata.originalName,
-          totalRecordsEstimated: rows.length, // Exact count for small files
+          totalRecordsEstimated: rows.length,
           previewLimit: limit,
           columns,
           rows,
@@ -515,47 +513,48 @@ export async function getDatasetPreview(datasetId, limit = 1000) {
       });
 
     } else {
-      // JSON: line-by-line
-      const rl = readline.createInterface({
-        input: readStream,
-        crlfDelay: Infinity,
-      });
+      const jsonStream = readStream.pipe(createJSONParserStream());
 
-      rl.on('line', (line) => {
+      jsonStream.on('data', (record) => {
         if (resolved) return;
-        const trimmed = line.trim();
-        if (!trimmed || trimmed === '[' || trimmed === ']' || trimmed === ',') return;
-        const cleanLine = trimmed.endsWith(',') ? trimmed.slice(0, -1) : trimmed;
-        try {
-          const parsed = JSON.parse(cleanLine);
+        if (record && !record._isMalformed) {
+          const cleanDoc = { ...record };
+          delete cleanDoc._rowNumber;
           if (rows.length < limit) {
-            rows.push(parsed);
+            rows.push(cleanDoc);
             if (columns.length === 0) {
-              columns = Object.keys(parsed);
+              columns = Object.keys(cleanDoc);
             }
-          } else {
-            rl.close();
-            readStream.destroy();
           }
-        } catch {
-          // ignore non-json line fragments
+          if (rows.length >= limit) {
+            readStream.destroy();
+            jsonStream.destroy();
+            doResolve({
+              datasetId,
+              format: 'json',
+              filename: metadata.originalName,
+              totalRecordsEstimated: null,
+              previewLimit: limit,
+              columns,
+              rows,
+            });
+          }
         }
       });
 
-      rl.on('close', () => {
+      jsonStream.on('end', () => {
         doResolve({
           datasetId,
           format: 'json',
           filename: metadata.originalName,
-          // Exact count when small; null when file is larger than limit
-          totalRecordsEstimated: rows.length < limit ? rows.length : null,
+          totalRecordsEstimated: rows.length,
           previewLimit: limit,
           columns,
           rows,
         });
       });
 
-      rl.on('error', (err) => {
+      jsonStream.on('error', (err) => {
         if (!resolved) {
           resolved = true;
           readStream.destroy();

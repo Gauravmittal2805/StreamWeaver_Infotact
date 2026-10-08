@@ -4,6 +4,7 @@
  */
 
 import fs from 'fs';
+import crypto from 'node:crypto';
 
 /**
  * Verify file integrity after upload
@@ -144,7 +145,6 @@ function validateJSONFormat(filePath) {
  */
 export async function calculateChecksum(filePath) {
   return new Promise((resolve, reject) => {
-    const crypto = require('crypto');
     const hash = crypto.createHash('sha256');
     const stream = fs.createReadStream(filePath);
 

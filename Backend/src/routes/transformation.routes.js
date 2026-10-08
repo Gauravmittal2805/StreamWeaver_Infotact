@@ -5,13 +5,22 @@ import {
   handleUpdateTransformation,
   handleDeleteTransformation,
   handlePreviewTransformation,
-  handleGetSupportedTransformations
+  handleGetSupportedTransformations,
+  handleValidateTransformation
 } from '../controllers/transformation.controller.js';
+import { handlePreviewCustomRule } from '../controllers/mapping.controller.js';
 
 const router = express.Router();
 
 // GET /api/transformations/supported - List predefined supported transformations
 router.get('/supported', handleGetSupportedTransformations);
+
+// POST /api/transformations/validate - Validate transformation configuration
+router.post('/validate', handleValidateTransformation);
+
+// POST /api/transformations/custom-js/preview - Execute and validate custom JS rule in server sandbox
+router.post('/custom-js/preview', handlePreviewCustomRule);
+router.post('/custom-js/validate', handlePreviewCustomRule);
 
 // POST /api/transformations/preview - Generate transformation preview
 router.post('/preview', handlePreviewTransformation);

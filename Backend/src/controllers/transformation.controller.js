@@ -222,11 +222,33 @@ export async function handleGetSupportedTransformations(req, res) {
   }
 }
 
+/**
+ * Handle POST /api/transformations/validate - Validate transformation configuration
+ */
+export async function handleValidateTransformation(req, res) {
+  try {
+    const payload = req.body || {};
+    const validation = validateTransformation(payload);
+    res.status(200).json({
+      success: true,
+      valid: validation.valid,
+      errors: validation.errors || []
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      valid: false,
+      errors: [error.message]
+    });
+  }
+}
+
 export default {
   handleSaveTransformation,
   handleGetTransformation,
   handleUpdateTransformation,
   handleDeleteTransformation,
   handlePreviewTransformation,
-  handleGetSupportedTransformations
+  handleGetSupportedTransformations,
+  handleValidateTransformation
 };

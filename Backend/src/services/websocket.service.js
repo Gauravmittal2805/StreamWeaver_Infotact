@@ -7,8 +7,17 @@ const jobSubscriptions = new Map(); // jobId -> Set<WebSocket>
  * Initializes WebSocket Server attached to express/HTTP server.
  * @param {import('http').Server} server 
  */
-export function initWebSocketServer(server) {
-  wss = new WebSocketServer({ server, path: '/ws/jobs' });
+export function initWebSocketServer(serverOptions) {
+  if (wss) return wss;
+
+  const server = serverOptions && serverOptions.listen ? serverOptions : (serverOptions && serverOptions.server ? serverOptions.server : serverOptions);
+
+  try {
+    wss = new WebSocketServer({ server, path: '/ws' });
+  } catch (err) {
+    console.warn('[WebSocket] Warning: Failed to bind to path /ws:', err.message);
+    return null;
+  }
 
   wss.on('connection', (ws) => {
     ws.isAlive = true;
@@ -18,7 +27,7 @@ export function initWebSocketServer(server) {
       ws.isAlive = true;
     });
 
-    ws.on('message', (message) => {
+    ws.on('message', async (message) => {
       try {
         const data = JSON.parse(message.toString());
 
@@ -29,12 +38,36 @@ export function initWebSocketServer(server) {
           }
           jobSubscriptions.get(data.jobId).add(ws);
           ws.send(JSON.stringify({ type: 'subscribed', jobId: data.jobId }));
+
+          // Send current job state snapshot immediately if available
+          try {
+            const { getJob } = await import('./job.service.js');
+            const job = await getJob(data.jobId);
+            if (job && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({
+                type: 'snapshot',
+                jobId: data.jobId,
+                status: job.status,
+                totalRows: job.totalRows || 0,
+                processedRows: job.processedRows || 0,
+                successfulRows: job.successfulRows || 0,
+                failedRows: job.failedRows || 0,
+                rowsPerSecond: job.rowsPerSecond || 0,
+                progressPercent: job.progressPercent || 0,
+                timestamp: new Date().toISOString()
+              }));
+            }
+          } catch {
+            // Ignore snapshot fetch error
+          }
         } else if (data.type === 'unsubscribe' && data.jobId) {
           ws.subscribedJobs.delete(data.jobId);
           if (jobSubscriptions.has(data.jobId)) {
             jobSubscriptions.get(data.jobId).delete(ws);
           }
           ws.send(JSON.stringify({ type: 'unsubscribed', jobId: data.jobId }));
+        } else if (data.type === 'ping') {
+          ws.send(JSON.stringify({ type: 'pong' }));
         }
       } catch (err) {
         console.error('[WebSocket] Invalid message received:', err.message);
@@ -45,8 +78,16 @@ export function initWebSocketServer(server) {
       for (const jobId of ws.subscribedJobs) {
         if (jobSubscriptions.has(jobId)) {
           jobSubscriptions.get(jobId).delete(ws);
+          if (jobSubscriptions.get(jobId).size === 0) {
+            jobSubscriptions.delete(jobId);
+          }
         }
       }
+      ws.subscribedJobs.clear();
+    });
+
+    ws.on('error', (err) => {
+      console.warn('[WebSocket] Client error:', err.message);
     });
   });
 
@@ -62,14 +103,16 @@ export function initWebSocketServer(server) {
 
   wss.on('close', () => {
     clearInterval(pingInterval);
+    wss = null;
   });
 
-  console.log('⚡ WebSocket Server initialized on path /ws/jobs');
+  console.log('⚡ WebSocket Server initialized on path /ws');
   return wss;
 }
 
 /**
- * Broadcasts job progress to all WebSocket clients subscribed to jobId.
+ * Broadcasts job progress strictly to WebSocket clients subscribed to that specific jobId.
+ * Ensures updates from Job A never leak to Job B's dashboard.
  *
  * @param {string} jobId 
  * @param {object} progressData 
@@ -81,7 +124,7 @@ export function broadcastJobProgress(jobId, progressData) {
   if (!clients || clients.size === 0) return;
 
   const payload = JSON.stringify({
-    type: 'job_progress',
+    type: progressData.type || 'progress',
     jobId,
     timestamp: new Date().toISOString(),
     ...progressData
@@ -89,7 +132,11 @@ export function broadcastJobProgress(jobId, progressData) {
 
   for (const client of clients) {
     if (client.readyState === WebSocket.OPEN) {
-      client.send(payload);
+      try {
+        client.send(payload);
+      } catch (err) {
+        console.warn(`[WebSocket] Send error for job ${jobId}:`, err.message);
+      }
     }
   }
 }
