@@ -235,7 +235,7 @@ export function DashboardPage() {
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 dark:bg-slate-800/60 text-[11px] font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">
+                    <thead className="bg-slate-50 text-[11px] font-bold text-slate-600 uppercase tracking-wider border-b border-slate-200">
                       <tr>
                         <th className="py-3 px-4 sm:px-6">Job ID / Dataset</th>
                         <th className="py-3 px-3">Status</th>
@@ -245,7 +245,7 @@ export function DashboardPage() {
                         <th className="py-3 px-4 sm:px-6 text-right">Action</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-normal">
+                    <tbody className="divide-y divide-slate-100 font-normal">
                       {jobs.slice(0, 5).map((j) => {
                         const isRunning = j.status === 'processing' || j.status === 'queued' || j.status === 'retrying';
                         let durationStr = '—';
@@ -258,18 +258,18 @@ export function DashboardPage() {
                         }
 
                         return (
-                          <tr key={j.jobId} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                          <tr key={j.jobId} className="hover:bg-slate-50/80 transition-colors">
                             <td className="py-3.5 px-4 sm:px-6">
                               <div className="flex items-center gap-2.5">
                                 <Cpu className="w-4 h-4 text-indigo-500 shrink-0" />
                                 <div>
                                   <Link
                                     to={`/jobs/${j.jobId}`}
-                                    className="font-bold text-slate-900 dark:text-slate-100 hover:text-indigo-600 font-mono"
+                                    className="font-bold text-slate-900 hover:text-indigo-600 font-mono"
                                   >
                                     {j.jobId}
                                   </Link>
-                                  <p className="text-[11px] text-slate-400 truncate max-w-[160px] sm:max-w-xs font-sans">
+                                  <p className="text-[11px] text-slate-500 truncate max-w-[160px] sm:max-w-xs font-sans">
                                     {j.datasetId}
                                   </p>
                                 </div>
@@ -278,13 +278,13 @@ export function DashboardPage() {
                             <td className="py-3.5 px-3">
                               <StatusBadge status={j.status} size="sm" />
                             </td>
-                            <td className="py-3.5 px-3 text-right font-mono font-medium text-slate-800 dark:text-slate-200">
+                            <td className="py-3.5 px-3 text-right font-mono font-bold text-slate-900">
                               {formatNumber(j.processedRows || 0)}
                             </td>
-                            <td className="py-3.5 px-3 text-right font-mono text-purple-600 dark:text-purple-400 font-semibold">
+                            <td className="py-3.5 px-3 text-right font-mono text-purple-700 font-bold">
                               {j.rowsPerSecond ? `${formatNumber(j.rowsPerSecond)} r/s` : '—'}
                             </td>
-                            <td className="py-3.5 px-3 font-mono text-slate-500">
+                            <td className="py-3.5 px-3 font-mono text-slate-600">
                               {durationStr}
                             </td>
                             <td className="py-3.5 px-4 sm:px-6 text-right">
