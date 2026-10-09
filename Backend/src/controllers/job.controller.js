@@ -290,53 +290,6 @@ export async function getJobFailedRecords(req, res) {
   }
 }
 
-export async function retryJob(req, res) {
-  try {
-    const { jobId } = req.params;
-    const { batchSize } = req.body || {};
-    const job = await jobService.getJob(jobId);
-    if (!job) {
-      return res.status(404).json({
-        success: false,
-        error: {
-          code: ERROR_CODES.PROCESSING_ERROR,
-          message: `Job '${jobId}' not found`
-        }
-      });
-    }
-
-    // Set job to retrying state and reset metrics
-    const updated = await jobService.updateJob(jobId, {
-      status: "retrying",
-      processedRows: 0,
-      successfulRows: 0,
-      failedRows: 0,
-      rowsPerSecond: 0,
-      progressPercent: 0,
-      errors: [],
-      error: null,
-      startedAt: new Date().toISOString(),
-      completedAt: null
-    });
-
-    setImmediate(() => {
-      etlService.processDataset(job.datasetId, job.jobId, { batchSize }).catch((err) => {
-        console.error(`Retry job processing error for ${jobId}:`, err);
-      });
-    });
-
-    res.json({
-      success: true,
-      message: "Job retry initiated",
-      jobId,
-      job: updated
-    });
-  } catch (error) {
-    console.error("Retry job error:", error);
-    return sendErrorResponse(res, error, 500);
-  }
-}
-
 export default {
   createJob,
   getJob,
