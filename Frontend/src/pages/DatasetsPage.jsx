@@ -257,7 +257,14 @@ export function DatasetsPage() {
                             >
                               {ds.filename}
                             </Link>
-                            <p className="text-xs text-slate-400 font-mono">ID: {ds.id}</p>
+                            <p className="text-xs text-slate-400 font-mono">
+                              ID: {ds.id}
+                              {(ds.rowCount ?? ds.rows) != null && (
+                                <span className="ml-2 text-slate-500 font-sans font-medium">
+                                  · {(ds.rowCount ?? ds.rows).toLocaleString()} rows
+                                </span>
+                              )}
+                            </p>
                           </div>
                         </div>
                       </td>

@@ -203,7 +203,7 @@ export function MappingPage() {
 
     Promise.allSettled([
       fileService.getDataset(datasetId),
-      fileService.getDatasetPreview(datasetId, { limit: 100, fallbackMock: true }),
+      fileService.getDatasetPreview(datasetId, { limit: 100 }),
     ]).then(([metaRes, previewRes]) => {
       if (!active) return;
 

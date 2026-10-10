@@ -85,9 +85,16 @@ export function ProcessingFailureScreen({
           </div>
 
           <div>
-            <Badge variant="danger" size="md" className="mb-2">
-              PROCESSING HALTED
-            </Badge>
+            <div className="flex flex-wrap items-center justify-center gap-2 mb-2">
+              <Badge variant="danger" size="md">
+                PROCESSING HALTED
+              </Badge>
+              {jobId && (
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-xs font-mono text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                  Job ID: {jobId}
+                </span>
+              )}
+            </div>
             <h2 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">
               Processing Could Not Be Completed
             </h2>

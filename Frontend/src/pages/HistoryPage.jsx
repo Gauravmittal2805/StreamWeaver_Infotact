@@ -66,8 +66,10 @@ export function HistoryPage() {
   const [copiedId, setCopiedId] = useState(null);
   const [cancelingJobId, setCancelingJobId] = useState(null);
   const [cancelLoading, setCancelLoading] = useState(false);
+  const [cancelError, setCancelError] = useState(null);
   const [retryingJob, setRetryingJob] = useState(null);
   const [retryLoading, setRetryLoading] = useState(false);
+  const [retryError, setRetryError] = useState(null);
 
   // Fetch all jobs from backend
   const fetchJobs = useCallback(async () => {
@@ -102,12 +104,13 @@ export function HistoryPage() {
   const handleConfirmCancel = async () => {
     if (!cancelingJobId) return;
     setCancelLoading(true);
+    setCancelError(null);
     try {
       await jobService.cancelJob(cancelingJobId);
       setCancelingJobId(null);
       await fetchJobs();
     } catch (err) {
-      alert(err.message || 'Failed to cancel job');
+      setCancelError(err.message || 'Failed to cancel job');
     } finally {
       setCancelLoading(false);
     }
@@ -117,12 +120,13 @@ export function HistoryPage() {
   const handleConfirmRetry = async () => {
     if (!retryingJob) return;
     setRetryLoading(true);
+    setRetryError(null);
     try {
       await jobService.retryJob(retryingJob.jobId);
       setRetryingJob(null);
       navigate(`/processing/${retryingJob.jobId}`);
     } catch (err) {
-      alert(err.message || 'Failed to retry job');
+      setRetryError(err.message || 'Failed to retry job');
     } finally {
       setRetryLoading(false);
     }
@@ -414,7 +418,7 @@ export function HistoryPage() {
             /* Real Data Table */
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 dark:bg-slate-800/60 text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
+                <thead className="bg-slate-50 text-[11px] font-bold text-slate-600 uppercase tracking-wider border-b border-slate-200">
                   <tr>
                     {/* Job ID */}
                     <th
@@ -539,20 +543,20 @@ export function HistoryPage() {
                     const durationSec = getJobDurationSeconds(job);
 
                     return (
-                      <tr key={job.jobId} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
+                      <tr key={job.jobId} className="hover:bg-slate-50/80 transition-colors">
                         {/* Job ID */}
                         <td className="py-3.5 px-5 font-mono">
                           <div className="flex items-center gap-1.5">
                             <Link
                               to={`/jobs/${job.jobId}`}
-                              className="font-bold text-slate-900 dark:text-slate-100 hover:text-indigo-600 dark:hover:text-indigo-400 text-xs"
+                              className="font-bold text-slate-900 hover:text-indigo-600 text-xs"
                             >
                               {job.jobId}
                             </Link>
                             <button
                               type="button"
                               onClick={() => handleCopyId(job.jobId)}
-                              className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-0.5"
+                              className="text-slate-400 hover:text-indigo-600 p-0.5 cursor-pointer"
                               title="Copy Job ID"
                             >
                               {copiedId === job.jobId ? (
@@ -568,7 +572,7 @@ export function HistoryPage() {
                         <td className="py-3.5 px-4">
                           <Link
                             to={`/datasets/${job.datasetId}/preview`}
-                            className="font-medium text-slate-800 dark:text-slate-200 hover:underline truncate max-w-[140px] block"
+                            className="font-medium text-slate-800 hover:text-indigo-600 hover:underline truncate max-w-[140px] block"
                             title={job.datasetId}
                           >
                             {job.datasetId}
@@ -583,19 +587,19 @@ export function HistoryPage() {
                         </td>
 
                         {/* Total Rows */}
-                        <td className="py-3.5 px-4 text-right font-mono font-medium text-slate-900 dark:text-slate-100">
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-900">
                           {formatNumber(job.totalRows || job.processedRows || 0)}
                         </td>
 
                         {/* Successful Rows */}
-                        <td className="py-3.5 px-4 text-right font-mono text-emerald-600 dark:text-emerald-400 font-semibold">
+                        <td className="py-3.5 px-4 text-right font-mono text-emerald-700 font-semibold">
                           {formatNumber(job.successfulRows || 0)}
                         </td>
 
                         {/* Failed Rows */}
                         <td className="py-3.5 px-4 text-right font-mono">
                           {job.failedRows > 0 ? (
-                            <span className="text-rose-600 dark:text-rose-400 font-bold">
+                            <span className="text-rose-600 font-bold">
                               {formatNumber(job.failedRows)}
                             </span>
                           ) : (
@@ -604,13 +608,13 @@ export function HistoryPage() {
                         </td>
 
                         {/* Processing Time (Duration) */}
-                        <td className="py-3.5 px-4 font-mono text-slate-700 dark:text-slate-300">
+                        <td className="py-3.5 px-4 font-mono text-slate-700">
                           {durationSec > 0 ? formatDuration(durationSec) : '—'}
                           {isRunning && <span className="text-[10px] text-indigo-500 ml-1">(live)</span>}
                         </td>
 
                         {/* Rows/sec */}
-                        <td className="py-3.5 px-4 text-right font-mono text-purple-600 dark:text-purple-400 font-semibold">
+                        <td className="py-3.5 px-4 text-right font-mono text-purple-700 font-bold">
                           {formatNumber(job.rowsPerSecond || 0)}
                         </td>
 
@@ -750,12 +754,17 @@ export function HistoryPage() {
       {/* ── Cancel Confirmation Modal ─────────────────────────────────────────── */}
       <Modal
         isOpen={Boolean(cancelingJobId)}
-        onClose={() => setCancelingJobId(null)}
+        onClose={() => { setCancelingJobId(null); setCancelError(null); }}
         title="Cancel Job Processing?"
         description={`Are you sure you want to stop processing job ${cancelingJobId}? Processed rows will remain committed.`}
       >
+        {cancelError && (
+          <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 mb-3">
+            {cancelError}
+          </div>
+        )}
         <div className="flex items-center justify-end gap-3 mt-4">
-          <Button variant="outline" onClick={() => setCancelingJobId(null)}>
+          <Button variant="outline" onClick={() => { setCancelingJobId(null); setCancelError(null); }}>
             Keep Running
           </Button>
           <Button
@@ -772,12 +781,17 @@ export function HistoryPage() {
       {/* ── Retry Confirmation Modal (Requirement 6) ──────────────────────────── */}
       <Modal
         isOpen={Boolean(retryingJob)}
-        onClose={() => setRetryingJob(null)}
+        onClose={() => { setRetryingJob(null); setRetryError(null); }}
         title="Retry Processing Job?"
         description={`Are you sure you want to retry job ${retryingJob?.jobId}? This will re-initialize the streaming pipeline.`}
       >
+        {retryError && (
+          <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 mb-3">
+            {retryError}
+          </div>
+        )}
         <div className="flex items-center justify-end gap-3 mt-4">
-          <Button variant="outline" onClick={() => setRetryingJob(null)}>
+          <Button variant="outline" onClick={() => { setRetryingJob(null); setRetryError(null); }}>
             Dismiss
           </Button>
           <Button
