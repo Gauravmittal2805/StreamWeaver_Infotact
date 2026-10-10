@@ -53,6 +53,26 @@ export const SUPPORTED_TRANSFORMATIONS = {
     description: 'Converts numeric string to number'
   },
 
+  // Date transformations
+  date: {
+    type: 'date',
+    name: 'Date Transformation',
+    category: 'date',
+    description: 'Converts date string or timestamp to ISO date format (YYYY-MM-DD)'
+  },
+  date_transform: {
+    type: 'date_transform',
+    name: 'Date Transformation',
+    category: 'date',
+    description: 'Converts date string or timestamp to ISO date format'
+  },
+  date_format: {
+    type: 'date_format',
+    name: 'Date Transformation',
+    category: 'date',
+    description: 'Converts date string or timestamp to ISO date format'
+  },
+
   // General transformations
   remove_empty: {
     type: 'remove_empty',
@@ -81,6 +101,7 @@ export function normalizeTransformationType(type) {
   if (['lowercase', 'lower'].includes(lower)) return 'lowercase';
   if (['trim', 'trim_whitespace', 'trimwhitespace'].includes(lower)) return 'trim';
   if (['number', 'convert_to_number', 'numeric', 'to_number'].includes(lower)) return 'number';
+  if (['date', 'date_transform', 'date_transformation', 'date_format', 'to_date'].includes(lower)) return 'date';
   if (['remove_empty', 'remove_empty_values', 'drop_empty'].includes(lower)) return 'remove_empty';
   
   return lower;

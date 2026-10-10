@@ -300,26 +300,24 @@ export function ProcessingDashboardPage() {
 
         <div className="flex items-center gap-3 text-xs flex-wrap">
           {/* WebSocket Connection Indicator (Requirement 8) */}
-          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
             {isWebSocketConnected && (
-              <>
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="font-semibold text-[11px] text-emerald-700 dark:text-emerald-400">Connected</span>
-              </>
+              <span className="font-bold text-[11px] text-emerald-700 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse inline-block" />
+                Connected
+              </span>
             )}
             {isWebSocketReconnecting && (
-              <>
-                <RefreshCw className="w-3 h-3 text-amber-500 animate-spin" />
-                <span className="font-semibold text-[11px] text-amber-600 dark:text-amber-400">
-                  Reconnecting ({reconnectAttempt}/{maxReconnectAttempts})
-                </span>
-              </>
+              <span className="font-bold text-[11px] text-amber-600 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse inline-block" />
+                Reconnecting... ({reconnectAttempt}/{maxReconnectAttempts})
+              </span>
             )}
             {isWebSocketDisconnected && (
-              <>
-                <WifiOff className="w-3 h-3 text-slate-400" />
-                <span className="font-medium text-[11px] text-slate-500">Disconnected (Polling Active)</span>
-              </>
+              <span className="font-medium text-[11px] text-slate-600 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-slate-400 inline-block" />
+                Disconnected (REST Polling Active)
+              </span>
             )}
           </div>
 
