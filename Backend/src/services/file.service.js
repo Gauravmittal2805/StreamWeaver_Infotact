@@ -449,6 +449,8 @@ export async function getDatasetPreview(datasetId, limit = 1000) {
 
   const { createCSVParserStream, createJSONParserStream } = await import('../parsers/index.js');
 
+  const safeLimit = Math.max(1, parseInt(limit, 10) || 1000);
+
   return new Promise((resolve, reject) => {
     const rows = [];
     let columns = [];
@@ -461,6 +463,12 @@ export async function getDatasetPreview(datasetId, limit = 1000) {
     };
 
     const readStream = fs.createReadStream(metadata.path);
+    readStream.on('error', (err) => {
+      if (!resolved) {
+        resolved = true;
+        reject(err);
+      }
+    });
 
     if (metadata.format === 'csv') {
       const csvStream = readStream.pipe(createCSVParserStream());
@@ -470,13 +478,13 @@ export async function getDatasetPreview(datasetId, limit = 1000) {
         if (record && !record._isMalformed) {
           const cleanDoc = { ...record };
           delete cleanDoc._rowNumber;
-          if (rows.length < limit) {
+          if (rows.length < safeLimit) {
             rows.push(cleanDoc);
             if (columns.length === 0) {
               columns = Object.keys(cleanDoc);
             }
           }
-          if (rows.length >= limit) {
+          if (rows.length >= safeLimit) {
             readStream.destroy();
             csvStream.destroy();
             doResolve({
@@ -484,7 +492,7 @@ export async function getDatasetPreview(datasetId, limit = 1000) {
               format: 'csv',
               filename: metadata.originalName,
               totalRecordsEstimated: null,
-              previewLimit: limit,
+              previewLimit: safeLimit,
               columns,
               rows,
             });
@@ -520,13 +528,13 @@ export async function getDatasetPreview(datasetId, limit = 1000) {
         if (record && !record._isMalformed) {
           const cleanDoc = { ...record };
           delete cleanDoc._rowNumber;
-          if (rows.length < limit) {
+          if (rows.length < safeLimit) {
             rows.push(cleanDoc);
             if (columns.length === 0) {
               columns = Object.keys(cleanDoc);
             }
           }
-          if (rows.length >= limit) {
+          if (rows.length >= safeLimit) {
             readStream.destroy();
             jsonStream.destroy();
             doResolve({
@@ -534,7 +542,7 @@ export async function getDatasetPreview(datasetId, limit = 1000) {
               format: 'json',
               filename: metadata.originalName,
               totalRecordsEstimated: null,
-              previewLimit: limit,
+              previewLimit: safeLimit,
               columns,
               rows,
             });

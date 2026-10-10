@@ -1,13 +1,14 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { getDB } from '../config/db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const UPLOAD_DIR = path.join(__dirname, '../../uploads');
 
-// In-memory metadata store (will be replaced with MongoDB)
+// In-memory metadata store with MongoDB sync
 const datasetsMetadata = new Map();
 
 /**
@@ -42,6 +43,14 @@ export function createDatasetMetadata(metadata) {
   };
 
   datasetsMetadata.set(dataset.id, dataset);
+
+  try {
+    const db = getDB();
+    db.collection('datasets').updateOne({ id: dataset.id }, { $set: dataset }, { upsert: true }).catch(() => {});
+  } catch {
+    // DB offline fallback
+  }
+
   return dataset;
 }
 
@@ -83,6 +92,14 @@ export function updateDatasetStatus(datasetId, status, additionalData = {}) {
   Object.assign(dataset, additionalData);
 
   datasetsMetadata.set(datasetId, dataset);
+
+  try {
+    const db = getDB();
+    db.collection('datasets').updateOne({ id: datasetId }, { $set: dataset }).catch(() => {});
+  } catch {
+    // DB offline fallback
+  }
+
   return dataset;
 }
 
@@ -116,6 +133,12 @@ export function getDatasetInfo(datasetId) {
  * @returns {boolean} - Success status
  */
 export function deleteDatasetMetadata(datasetId) {
+  try {
+    const db = getDB();
+    db.collection('datasets').deleteOne({ id: datasetId }).catch(() => {});
+  } catch {
+    // DB offline fallback
+  }
   return datasetsMetadata.delete(datasetId);
 }
 

@@ -12,7 +12,9 @@ function isTransientMongoError(err) {
     'MongoTimeoutError',
     'MongoNetworkTimeoutError',
     'MongoTopologyClosedError',
-    'MongoWriteConcernError'
+    'MongoWriteConcernError',
+    'MongoNotConnectedError',
+    'MongoCursorInUseError'
   ];
   if (transientNames.includes(err.name)) return true;
   if (typeof err.hasErrorLabel === 'function') {
@@ -26,7 +28,15 @@ function isTransientMongoError(err) {
     msg.includes('econnrefused') ||
     msg.includes('econnreset') ||
     msg.includes('socket closed') ||
-    msg.includes('connection reset')
+    msg.includes('connection reset') ||
+    msg.includes('not connected') ||
+    msg.includes('topology was destroyed') ||
+    msg.includes('topology is closed') ||
+    msg.includes('client is closed') ||
+    msg.includes('failed to connect') ||
+    msg.includes('database is not connected') ||
+    msg.includes('server selection') ||
+    msg.includes('interrupted')
   );
 }
 
@@ -47,6 +57,8 @@ export class MongoBulkBufferStream extends Transform {
     this.batchSize = options.batchSize || parseInt(process.env.BATCH_SIZE || '1000', 10);
     this.maxRetries = options.maxRetries !== undefined ? options.maxRetries : 3;
     this.collectionName = options.collectionName || `dataset_${this.datasetId}`;
+    this.dropExisting = options.dropExisting !== undefined ? options.dropExisting : false;
+    this.collectionDropped = false;
     this.buffer = [];
     this.insertedCount = 0;
     this.dbFailedCount = 0; // Only tracks DB write failures
@@ -80,11 +92,13 @@ export class MongoBulkBufferStream extends Transform {
       return callback();
     }
 
-    // Clean internal metadata properties starting with '_'
-    const cleanDoc = { ...record };
-    delete cleanDoc._isMapped;
-    delete cleanDoc._isTransformed;
-    delete cleanDoc._processedAt;
+    // Clean internal metadata properties starting with '_' except valid MongoDB _id
+    const cleanDoc = {};
+    for (const [k, v] of Object.entries(record)) {
+      if (!k.startsWith('_') || k === '_id') {
+        cleanDoc[k] = v;
+      }
+    }
 
     this.buffer.push(cleanDoc);
     this.push(record);
@@ -139,6 +153,16 @@ export class MongoBulkBufferStream extends Transform {
         }
 
         const collection = db.collection(this.collectionName);
+
+        if (this.dropExisting && !this.collectionDropped) {
+          this.collectionDropped = true;
+          try {
+            await collection.drop();
+          } catch (dropErr) {
+            // Ignore if collection didn't exist yet
+          }
+        }
+
         const operations = recordsToInsert.map(doc => ({
           insertOne: { document: doc }
         }));
@@ -156,7 +180,40 @@ export class MongoBulkBufferStream extends Transform {
       } catch (err) {
         this.totalDbTimeMs += (Date.now() - dbStartTime);
 
-        // Case 1: Partial bulk write failures (e.g., duplicate key 11000 or document validation)
+        // Case 1: Transient connection/network error - retry with exponential backoff
+        if (isTransientMongoError(err)) {
+          if (attempt < this.maxRetries) {
+            attempt++;
+            const backoffDelay = Math.min(1000, Math.pow(2, attempt) * 100);
+            console.warn(`[MongoBulkBuffer] Transient MongoDB connection error (attempt ${attempt}/${this.maxRetries}): ${err.message}. Retrying in ${backoffDelay}ms...`);
+            try {
+              const { connectDB } = await import('../config/db.js');
+              await connectDB(true);
+            } catch (reconnectErr) {
+              // Ignore reconnection error during retry window
+            }
+            await new Promise(r => setTimeout(r, backoffDelay));
+            continue;
+          }
+
+          // Retries exhausted on transient connection error -> Fail safely
+          this.dbFailedCount += recordsToInsert.length;
+          if (this.errors.length < this.maxErrorSample) {
+            this.errors.push({
+              rowNumber: null,
+              field: null,
+              type: 'DB_CONNECTION_FAILURE',
+              message: `MongoDB connection retries exhausted (${this.maxRetries}): ${err.message}`,
+              status: 'failed'
+            });
+          }
+          if (typeof this.onBatchResult === 'function') {
+            this.onBatchResult({ inserted: 0, failed: recordsToInsert.length, error: err.message });
+          }
+          throw new Error(`MongoDB connection retries exhausted (${this.maxRetries}): ${err.message}`);
+        }
+
+        // Case 2: Partial bulk write failures (e.g., duplicate key 11000 or document validation)
         if (err.name === 'MongoBulkWriteError' || err.code === 11000 || err.result) {
           const result = err.result || {};
           const inserted = result.insertedCount || (result.nInserted || 0);
@@ -187,16 +244,7 @@ export class MongoBulkBufferStream extends Transform {
           return; // Processed partial errors, exit retry loop
         }
 
-        // Case 2: Transient connection/network error - retry with exponential backoff
-        if (isTransientMongoError(err) && attempt < this.maxRetries) {
-          attempt++;
-          const backoffDelay = Math.min(1000, Math.pow(2, attempt) * 100);
-          console.warn(`[MongoBulkBuffer] Transient MongoDB connection error (attempt ${attempt}/${this.maxRetries}): ${err.message}. Retrying in ${backoffDelay}ms...`);
-          await new Promise(r => setTimeout(r, backoffDelay));
-          continue;
-        }
-
-        // Case 3: Permanent database error or retry limit exhausted
+        // Case 3: Permanent database error
         this.dbFailedCount += recordsToInsert.length;
 
         if (this.errors.length < this.maxErrorSample) {
@@ -212,7 +260,7 @@ export class MongoBulkBufferStream extends Transform {
         if (typeof this.onBatchResult === 'function') {
           this.onBatchResult({ inserted: 0, failed: recordsToInsert.length, error: err.message });
         }
-        return;
+        throw err;
       }
     }
   }

@@ -85,21 +85,28 @@ export async function previewTransformations(options = {}) {
     }
   }
 
-  // 1. If inline raw records were provided, process immediately
-  if (Array.isArray(rawRecords)) {
-    const sample = rawRecords.slice(0, limit);
+  // 1. If inline raw records or sample rows were provided, process immediately
+  const sampleData = Array.isArray(rawRecords) ? rawRecords : (Array.isArray(options.sampleRows) ? options.sampleRows : null);
+  if (Array.isArray(sampleData)) {
+    const sample = sampleData.slice(0, limit);
     const preview = sample.map(processPreviewRecord);
     return {
       success: true,
       count: preview.length,
       limit,
-      preview
+      preview,
+      transformedRows: preview.map(p => p.transformed),
+      comparisons: preview.map((p, idx) => ({
+        rowIndex: idx,
+        raw: p.original,
+        transformed: p.transformed
+      }))
     };
   }
 
   // 2. Stream from dataset if datasetId provided
   if (!datasetId) {
-    throw new Error('Either datasetId or rawRecords array is required for transformation preview');
+    throw new Error('Either datasetId or rawRecords/sampleRows array is required for transformation preview');
   }
 
   const readResult = await getReadStream(datasetId);
@@ -144,7 +151,13 @@ export async function previewTransformations(options = {}) {
     success: true,
     count: previewResults.length,
     limit,
-    preview: previewResults
+    preview: previewResults,
+    transformedRows: previewResults.map(p => p.transformed),
+    comparisons: previewResults.map((p, idx) => ({
+      rowIndex: idx,
+      raw: p.original,
+      transformed: p.transformed
+    }))
   };
 }
 

@@ -39,13 +39,12 @@ export function initWebSocketServer(serverOptions) {
           jobSubscriptions.get(data.jobId).add(ws);
           ws.send(JSON.stringify({ type: 'subscribed', jobId: data.jobId }));
 
-          // Send current job state snapshot immediately if available
+          // Send current job state snapshot immediately if available to restore progress
           try {
             const { getJob } = await import('./job.service.js');
             const job = await getJob(data.jobId);
             if (job && ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({
-                type: 'snapshot',
+              const snapshotPayload = {
                 jobId: data.jobId,
                 status: job.status,
                 totalRows: job.totalRows || 0,
@@ -54,8 +53,13 @@ export function initWebSocketServer(serverOptions) {
                 failedRows: job.failedRows || 0,
                 rowsPerSecond: job.rowsPerSecond || 0,
                 progressPercent: job.progressPercent || 0,
+                errors: job.errors || [],
                 timestamp: new Date().toISOString()
-              }));
+              };
+              // Send snapshot event
+              ws.send(JSON.stringify({ type: 'snapshot', ...snapshotPayload }));
+              // Also send progress event so subscribers listening to progress restore seamlessly
+              ws.send(JSON.stringify({ type: 'progress', isSnapshot: true, ...snapshotPayload }));
             }
           } catch {
             // Ignore snapshot fetch error

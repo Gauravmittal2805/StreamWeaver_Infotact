@@ -148,6 +148,8 @@ export async function processDataset(datasetId, jobId, options = {}) {
     const mongoStream = createMongoStream({
       datasetId,
       batchSize,
+      dropExisting: options.dropExisting !== undefined ? options.dropExisting : true,
+      maxRetries: options.maxRetries !== undefined ? options.maxRetries : 3,
       onBatchResult: (result) => {
         if (result.failed > 0) {
           console.warn(`[ETL Engine] MongoDB Batch write reported ${result.failed} failures.`);
@@ -167,11 +169,10 @@ export async function processDataset(datasetId, jobId, options = {}) {
           const dbErrors = (typeof mongoStream.getErrors === 'function') ? mongoStream.getErrors() : [];
           const combinedErrors = [...(metrics.errors || []), ...dbErrors].slice(0, 100);
 
-          const mongoInserted = mongoStream.insertedCount || 0;
           const mongoFailed = mongoStream.failedCount || 0;
 
           const totalFailed = metrics.failedRows + mongoFailed;
-          const totalSuccessful = Math.max(metrics.successfulRows - mongoFailed, mongoInserted);
+          const totalSuccessful = Math.max(0, metrics.successfulRows - mongoFailed);
 
           await jobService.updateJob(jobId, {
             totalRows: (metadata && metadata.totalRows) || metrics.recordsReceived,
@@ -237,12 +238,13 @@ export async function processDataset(datasetId, jobId, options = {}) {
     const completedAt = new Date().toISOString();
 
     const finalFailed = finalMetrics.failedRows + (mongoStream.failedCount || 0);
-    const finalSuccessful = Math.max(finalMetrics.successfulRows - (mongoStream.failedCount || 0), mongoStream.insertedCount || 0);
+    const finalSuccessful = Math.max(0, finalMetrics.successfulRows - (mongoStream.failedCount || 0));
+    const finalTotal = finalSuccessful + finalFailed;
 
     const completedJob = await jobService.updateJob(jobId, {
       status: JOB_STATUS.COMPLETED,
-      totalRows: (metadata && metadata.totalRows) || finalMetrics.recordsReceived,
-      processedRows: finalMetrics.processedRows || 0,
+      totalRows: (metadata && metadata.totalRows) || finalTotal,
+      processedRows: finalTotal,
       successfulRows: finalSuccessful,
       failedRows: finalFailed,
       rowsPerSecond: finalMetrics.rowsPerSecond || 0,
